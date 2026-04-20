@@ -413,12 +413,22 @@ async function handleMessage(ws, c, msg){
   if (t === 'admin-add-game') {
     if (!isAdmin()) return sendTo(ws, { t: 'error', error: 'admin only' });
     sendTo(ws, { t: 'admin-game-status', text: 'creating repo + scaffolding…' });
+    // Allow seedHtml from upload, or baseGameId to pull a built-in's seed.
+    let seedHtml = typeof msg.seedHtml === 'string' ? msg.seedHtml : null;
+    if (!seedHtml && msg.baseGameId) {
+      const fs = await import('fs');
+      const path = await import('path');
+      try {
+        seedHtml = fs.readFileSync(path.join(ROOT, 'games', msg.baseGameId, 'seed.html'), 'utf8');
+      } catch { /* falls through — scaffolder uses its minimal seed */ }
+    }
     const res = await gameManager.createGameRepo({
       id: (msg.id || '').toLowerCase().trim(),
       name: msg.name,
       description: msg.description,
       minPlayers: msg.minPlayers,
-      maxPlayers: msg.maxPlayers
+      maxPlayers: msg.maxPlayers,
+      seedHtml
     }, { actorId: me.userId });
     if (!res.ok) return sendTo(ws, { t: 'admin-game-status', text: 'failed', error: res.error, done: true });
     sendTo(ws, { t: 'admin-game-status',

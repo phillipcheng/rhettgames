@@ -150,7 +150,11 @@ addGameSubmit.addEventListener('click', async () => {
     if (promoteReleaseId) {
       send({ t: 'admin-promote-game', releaseId: promoteReleaseId.id, id, name, description, minPlayers, maxPlayers });
     } else {
-      send({ t: 'admin-add-game', id, name, description, minPlayers, maxPlayers });
+      // If the user uploaded an HTML or picked a base, pass it as the seed for the scaffolded repo.
+      const payload = { t: 'admin-add-game', id, name, description, minPlayers, maxPlayers };
+      if (startPoint === 'upload' && seedHtml) payload.seedHtml = seedHtml;
+      else if (startPoint === 'base' && newGameBaseSel.value) payload.baseGameId = newGameBaseSel.value;
+      send(payload);
     }
     // The admin-game-status handler will close/update.
     return;
