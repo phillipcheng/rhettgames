@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RHETT GAMES</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #0a0a12;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+    color: #fff;
+    user-select: none;
+  }
+  #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #canvas-stage { position: relative; display: none; }
+  #canvas-stage.active { display: block; }
+  canvas {
+    background: #161622;
+    border: 2px solid #2a2a40;
+    box-shadow: 0 0 60px rgba(100,140,255,0.15);
+    display: block;
+    outline: none;
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  /* ========= Overlay shell ========= */
+  #overlay {
+    position: fixed; inset: 0;
+    background: rgba(5,5,15,0.96);
+    display: flex; align-items: center; justify-content: center; flex-direction: column;
+    z-index: 10; text-align: center; padding: 20px; overflow-y: auto;
+  }
+  #overlay.hidden { display: none; }
+  .view { display: none; width: 100%; max-width: 1400px; padding: 0 16px; }
+  .view.active { display: flex; flex-direction: column; align-items: center; }
+  #view-login { max-width: 720px; }
+  .icon-btn {
+    font-family: inherit; font-size: 18px; line-height: 1;
+    padding: 6px 12px; min-width: 38px;
+  }
+  @media (max-width: 900px) {
+    .lobby-columns, .dev-columns {
+      grid-template-columns: 1fr !important;
+    }
+    .lobby-header {
+      flex-wrap: wrap; gap: 8px;
+    }
+    h1 { font-size: 36px !important; letter-spacing: 4px !important; }
+    h2 { font-size: 16px !important; }
+  }
+  @media (max-width: 600px) {
+    .view { padding: 0 8px; }
+    .btn { padding: 8px 14px; font-size: 13px; letter-spacing: 1px; }
+  }
+
+  h1 {
+    font-size: 52px; letter-spacing: 8px;
+    background: linear-gradient(90deg, #ff3a5c, #ffcb3a, #3aff9d, #3a9dff, #ff3aff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 0 0 40px rgba(255,100,100,0.3);
+    margin-bottom: 6px;
+    animation: gshift 6s ease infinite;
+    background-size: 200% auto;
+  }
+  @keyframes gshift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  h2 {
+    font-size: 22px; letter-spacing: 4px; color: #ffcb3a;
+    margin: 18px 0 10px;
+  }
+  h3 { font-size: 16px; letter-spacing: 3px; color: #bcd; margin: 12px 0 8px; }
+  p { color: #aab; margin: 4px 0; font-size: 14px; line-height: 1.5; }
+
+  /* ========= Common form ========= */
+  .form-row { display: flex; gap: 10px; align-items: center; margin: 6px 0; }
+  .form-row label {
+    font-size: 13px; color: #bcd; letter-spacing: 2px;
+    min-width: 90px; text-align: right;
+  }
+  input[type=text], input[type=password] {
+    font-family: inherit; font-size: 16px;
+    background: #1a1a28; color: #fff;
+    border: 2px solid #2a2a40; border-radius: 4px;
+    padding: 8px 12px; outline: none;
+    min-width: 220px; letter-spacing: 1px;
+  }
+  input:focus { border-color: #ffcb3a; }
+
+  .btn, button {
+    padding: 10px 28px; font-size: 15px; font-family: inherit;
+    background: linear-gradient(90deg, #ff3a5c, #ffcb3a);
+    border: none; color: #000; cursor: pointer;
+    letter-spacing: 2px; font-weight: bold;
+    border-radius: 4px; transition: transform 0.1s;
+    margin: 4px;
+  }
+  .btn:hover, button:hover { transform: scale(1.03); }
+  .btn.ghost, button.ghost {
+    background: transparent; color: #bcd;
+    border: 2px solid #2a2a40;
+  }
+  .btn.ghost:hover, button.ghost:hover { border-color: #ffcb3a; color: #fff; }
+  .btn[disabled], button[disabled] {
+    opacity: 0.4; cursor: not-allowed; transform: none;
+  }
+  .error-text {
+    color: #ff3a5c; font-size: 13px; min-height: 18px; margin-top: 6px;
+    letter-spacing: 1px;
+  }
+  .form-tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+  .form-tab {
+    padding: 8px 22px; font-size: 13px; letter-spacing: 2px;
+    background: transparent; color: #667; border: 2px solid #2a2a40; color: #bcd;
+    border-radius: 4px; cursor: pointer;
+  }
+  .form-tab.active { background: #ffcb3a; color: #000; border-color: #ffcb3a; }
+
+  /* ========= Lobby ========= */
+  .lobby-container { width: 100%; }
+  .lobby-header {
+    display: flex; justify-content: space-between; align-items: center;
+    width: 100%; padding: 0 8px; margin-bottom: 14px;
+  }
+  .user-badge {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 14px; color: #bcd;
+  }
+  .user-badge .name { color: #ffcb3a; font-weight: bold; letter-spacing: 1px; }
+  .lobby-columns { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; width: 100%; }
+  .panel {
+    background: rgba(20,20,35,0.8);
+    border: 2px solid #2a2a40; border-radius: 8px;
+    padding: 14px 16px;
+    text-align: left;
+    min-height: 260px;
+  }
+  .panel-title {
+    font-size: 13px; letter-spacing: 3px;
+    color: #ffcb3a; margin-bottom: 10px;
+  }
+  .room-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px; border-bottom: 1px solid #2a2a40;
+  }
+  .room-row:last-child { border-bottom: none; }
+  .room-row .meta { display: flex; flex-direction: column; gap: 2px; }
+  .room-row .code {
+    font-family: monospace; font-size: 16px; letter-spacing: 2px; color: #fff;
+  }
+  .room-row .sub { font-size: 11px; color: #789; letter-spacing: 1px; }
+  .room-row .status {
+    font-size: 11px; letter-spacing: 2px; padding: 2px 8px;
+    background: #2a2a40; border-radius: 3px; color: #bcd;
+  }
+  .room-row .status.playing { background: #3a9dff; color: #001; }
+  .room-row .status.waiting { background: #ffcb3a; color: #001; }
+  .room-row .status.finished { background: #555; color: #aab; }
+  .empty-list { color: #667; font-size: 13px; text-align: center; padding: 30px; }
+  .game-picker {
+    display: flex; flex-direction: column; gap: 6px; margin-top: 8px;
+  }
+  .game-option {
+    background: #1a1a28; padding: 10px 12px; border-radius: 4px;
+    border: 2px solid #2a2a40; cursor: pointer;
+    font-size: 13px; color: #bcd; letter-spacing: 1px; text-align: left;
+  }
+  .game-option.selected { border-color: #ffcb3a; color: #fff; }
+  .game-option .label { font-weight: bold; font-size: 14px; color: #ffcb3a; display: block; margin-bottom: 2px; }
+  .game-option .hint { color: #667; font-size: 11px; }
+
+  /* ========= Room ========= */
+  .room-container { width: 100%; }
+  .room-title { font-size: 32px; letter-spacing: 6px; color: #ffcb3a; margin-bottom: 4px; }
+  .room-code {
+    font-family: monospace; font-size: 18px; color: #bcd;
+    background: #1a1a28; padding: 6px 14px; border-radius: 4px;
+    letter-spacing: 4px; margin-bottom: 14px;
+  }
+  .members-list {
+    display: grid; grid-template-columns: repeat(2, 1fr);
+    gap: 10px; width: 100%; max-width: 520px; margin: 14px 0;
+  }
+  .member-card {
+    background: rgba(20,20,35,0.8);
+    border: 2px solid #2a2a40;
+    border-radius: 6px; padding: 14px;
+  }
+  .member-card.slot0 { border-color: #3a9dff; }
+  .member-card.slot1 { border-color: #ff6b3a; }
+  .member-card .slot-name {
+    font-size: 12px; letter-spacing: 2px; color: #aab; margin-bottom: 4px;
+  }
+  .member-card .slot0-name { color: #3a9dff; }
+  .member-card .slot1-name { color: #ff6b3a; }
+  .member-card .player-name {
+    font-size: 20px; font-weight: bold; color: #fff;
+    letter-spacing: 1px;
+  }
+  .member-card .player-name.empty { color: #445; font-style: italic; font-size: 15px; }
+  .member-card .tag {
+    display: inline-block; margin-top: 4px;
+    font-size: 10px; letter-spacing: 2px; padding: 1px 6px;
+    border-radius: 3px; background: #ffcb3a; color: #000;
+  }
+
+  /* ========= Connection indicator ========= */
+  #conn-indicator {
+    position: fixed; top: 10px; right: 14px; z-index: 20;
+    font-size: 11px; color: #aab; letter-spacing: 1px;
+  }
+  #conn-indicator .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #3aff9d; margin-right: 6px; vertical-align: middle;
+  }
+  #conn-indicator.bad .dot { background: #ff3a5c; }
+
+  /* ========= In-game controls (floating, shown only during active game) ========= */
+  #ingame-controls {
+    position: fixed; top: 10px; left: 14px; z-index: 25;
+    display: none;
+  }
+  #ingame-controls.visible { display: flex; gap: 8px; align-items: center; }
+  #quitGameBtn {
+    font-family: 'Courier New', monospace; font-size: 12px;
+    letter-spacing: 2px; font-weight: bold;
+    padding: 6px 14px; margin: 0;
+    background: rgba(20,20,35,0.85);
+    color: #ff3a5c; border: 2px solid #ff3a5c;
+    border-radius: 4px; cursor: pointer;
+    transition: transform 0.1s, background 0.15s;
+  }
+  #quitGameBtn:hover { background: #ff3a5c; color: #fff; transform: scale(1.03); }
+  #quitGameBtn .hint { color: #667; font-weight: normal; margin-left: 6px; font-size: 10px; }
+  #quitGameBtn:hover .hint { color: #fdd; }
+
+  /* ========= Leaderboard ========= */
+  .leaderboard-table { width: 100%; font-size: 12px; }
+  .leaderboard-table tr { border-bottom: 1px solid #2a2a40; }
+  .leaderboard-table td { padding: 6px 4px; color: #bcd; }
+  .leaderboard-table td.rank { color: #ffcb3a; font-weight: bold; width: 30px; }
+  .leaderboard-table td.name { color: #fff; font-weight: bold; }
+  .leaderboard-table td.num { text-align: right; font-family: monospace; }
+
+  /* ========= Dev Mode list ========= */
+  #view-dev-list { max-width: 1400px; }
+  .dev-columns { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; width: 100%; }
+  .project-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 12px; border-bottom: 1px solid #2a2a40; cursor: pointer;
+    transition: background 0.1s;
+  }
+  .project-row:hover { background: rgba(255,203,58,0.08); }
+  .project-row .meta { display: flex; flex-direction: column; gap: 2px; }
+  .project-row .title { font-size: 15px; color: #fff; font-weight: bold; }
+  .project-row .sub  { font-size: 11px; color: #789; letter-spacing: 1px; }
+  .project-row .actions { display: flex; gap: 6px; }
+  .project-row .del-btn {
+    background: transparent; color: #ff3a5c; border: 1px solid #3a2028;
+    padding: 4px 10px; font-size: 11px; letter-spacing: 1px;
+  }
+  .project-row .del-btn:hover { background: #ff3a5c; color: #fff; }
+  #newProjectTitle { min-width: 100%; margin-top: 8px; }
+
+  /* ========= Studio / Play release / System Dev ========= */
+  #view-studio, #view-play-release, #view-sysdev {
+    max-width: 100%; width: 100%; height: calc(100vh - 40px);
+    padding: 0 12px;
+  }
+  #sysDevBody {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) minmax(260px, 1.3fr) minmax(280px, 1.3fr);
+    gap: 10px;
+    flex: 1;
+    width: 100%;
+    padding: 10px 0;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .sysdev-col {
+    min-width: 0;     /* prevent grid child from expanding to content size */
+    min-height: 0;
+    max-width: 100%;
+  }
+  #sysDevTree {
+    flex: 1;
+    overflow: auto;
+    padding: 10px 12px;
+    font-size: 12px;
+    font-family: monospace;
+    color: #bcd;
+    min-height: 0;
+  }
+  #sysDevChat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 0;
+  }
+  #sysDevDiff {
+    flex: 1;
+    overflow: auto;
+    padding: 10px 12px;
+    font-size: 11px;
+    font-family: monospace;
+    color: #ddd;
+    white-space: pre;
+    min-height: 0;
+  }
+  #sysDevInput {
+    flex: 1;
+    resize: none;
+    min-height: 44px;
+    max-height: 140px;
+    font-family: inherit;
+    font-size: 13px;
+    background: #1a1a28;
+    color: #fff;
+    border: 2px solid #2a2a40;
+    border-radius: 4px;
+    padding: 8px 10px;
+    outline: none;
+  }
+  #sysDevInput:focus { border-color: #ffcb3a; }
+  #sysDevSend {
+    padding: 0 18px;
+    font-size: 13px;
+    letter-spacing: 2px;
+    font-weight: bold;
+  }
+  .published-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 12px; border-bottom: 1px solid #2a2a40; cursor: pointer;
+    transition: background 0.1s;
+  }
+  .published-row:hover { background: rgba(58,255,203,0.08); }
+  .published-row .meta { display: flex; flex-direction: column; gap: 2px; }
+  .published-row .title { font-size: 14px; color: #fff; font-weight: bold; }
+  .published-row .sub { font-size: 11px; color: #789; letter-spacing: 1px; }
+  .published-row .version {
+    font-family: monospace; letter-spacing: 1px;
+    padding: 3px 8px; border-radius: 3px;
+    background: #3aff9d; color: #002;
+    font-size: 11px; font-weight: bold;
+  }
+  #playFrameWrap {
+    background: #000; border: 2px solid #2a2a40; border-radius: 6px;
+    position: relative; overflow: hidden;
+    flex: 1; min-height: 0;
+  }
+  #playFrame { width: 100%; height: 100%; border: 0; display: block; }
+  .studio-header {
+    display: flex; justify-content: space-between; align-items: center;
+    width: 100%; padding: 8px 0; border-bottom: 1px solid #2a2a40;
+    flex-shrink: 0;
+  }
+  .studio-title { color: #ffcb3a; font-size: 16px; letter-spacing: 3px; }
+  .studio-title .sub { color: #789; font-size: 11px; margin-left: 10px; letter-spacing: 1px; }
+  .studio-body {
+    display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px;
+    flex: 1; width: 100%; padding: 10px 0; overflow: hidden;
+  }
+  #studioFrameWrap {
+    background: #000; border: 2px solid #2a2a40; border-radius: 6px;
+    position: relative; overflow: hidden; min-height: 0;
+  }
+  #studioFrame {
+    width: 100%; height: 100%; border: 0; display: block;
+    background: #000;
+  }
+  .chat-panel {
+    display: flex; flex-direction: column;
+    background: rgba(20,20,35,0.8);
+    border: 2px solid #2a2a40; border-radius: 6px;
+    overflow: hidden; min-height: 0;
+  }
+  .chat-header {
+    padding: 8px 12px; border-bottom: 1px solid #2a2a40;
+    font-size: 11px; letter-spacing: 3px; color: #ffcb3a;
+  }
+  #chatMessages {
+    flex: 1; overflow-y: auto; padding: 10px 12px;
+    display: flex; flex-direction: column; gap: 10px;
+    font-size: 13px; line-height: 1.5;
+  }
+  .msg { display: flex; flex-direction: column; gap: 3px; }
+  .msg .who { font-size: 10px; letter-spacing: 2px; color: #667; }
+  .msg.user   .who { color: #3a9dff; }
+  .msg.assistant .who { color: #ffcb3a; }
+  .msg.system .who { color: #ff3a5c; }
+  .msg .body { color: #ddd; white-space: pre-wrap; word-break: break-word; }
+  .msg.system .body { color: #ff8f9d; font-style: italic; }
+  .msg-thinking {
+    color: #667; font-size: 12px; font-style: italic;
+    letter-spacing: 1px; padding: 6px 0;
+  }
+  .chat-footer {
+    display: flex; gap: 6px; padding: 8px; border-top: 1px solid #2a2a40;
+    flex-shrink: 0;
+  }
+  #chatInput {
+    flex: 1; resize: none; min-height: 44px; max-height: 140px;
+    font-family: inherit; font-size: 13px;
+    background: #1a1a28; color: #fff;
+    border: 2px solid #2a2a40; border-radius: 4px;
+    padding: 8px 10px; outline: none;
+  }
+  #chatInput:focus { border-color: #ffcb3a; }
+  #chatSend {
+    padding: 0 18px; font-size: 13px;
+    letter-spacing: 2px; font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<div id="wrap">
+  <div id="canvas-stage">
+    <canvas id="game" width="1280" height="720" tabindex="0"></canvas>
+  </div>
+</div>
+
+<div id="conn-indicator"><span class="dot"></span><span id="conn-text">connecting…</span></div>
+
+<div id="ingame-controls">
+  <button id="quitGameBtn" title="Leave this game and return to the lobby (Esc)">
+    ← QUIT GAME<span class="hint">ESC</span>
+  </button>
+</div>
+
+<div id="overlay">
+
+  <!-- ============ LOGIN VIEW ============ -->
+  <div id="view-login" class="view">
+    <h1>RHETT GAMES</h1>
+    <p>Multiplayer arcade · log in to play</p>
+
+    <div class="form-tabs" style="margin-top: 24px;">
+      <div class="form-tab active" data-tab="login">LOGIN</div>
+      <div class="form-tab" data-tab="register">REGISTER</div>
+    </div>
+
+    <div class="form-row">
+      <label for="authName">NAME</label>
+      <input id="authName" type="text" maxlength="16" autocomplete="username" placeholder="your name" />
+    </div>
+    <div class="form-row">
+      <label for="authPass">PASSWORD</label>
+      <input id="authPass" type="password" maxlength="128" autocomplete="current-password" placeholder="••••" />
+    </div>
+    <div id="authError" class="error-text"></div>
+    <button class="btn" id="authBtn">LOGIN</button>
+  </div>
+
+  <!-- ============ LOBBY VIEW ============ -->
+  <div id="view-lobby" class="view">
+    <h1>LOBBY</h1>
+
+    <div class="lobby-header">
+      <div class="user-badge">
+        <span id="lobbyUserName" class="name"></span>
+      </div>
+      <div>
+        <button class="btn" id="adminBtn" style="padding:6px 18px;font-size:12px;background:linear-gradient(90deg,#3a9dff,#a078ff);display:none;">ADMIN</button>
+        <button class="btn" id="sysDevBtn" style="padding:6px 18px;font-size:12px;background:linear-gradient(90deg,#ff3a5c,#aa00ff);display:none;">SYSTEM DEV</button>
+        <button class="btn" id="devModeBtn" style="padding:6px 18px;font-size:12px;">DEV MODE</button>
+        <button class="ghost icon-btn" id="refreshLobbyBtn" title="Refresh">↻</button>
+        <button class="ghost icon-btn" id="logoutBtn" title="Logout">⎋</button>
+      </div>
+    </div>
+
+    <div class="lobby-columns">
+      <div class="panel">
+        <div class="panel-title">OPEN GAMES</div>
+        <div id="roomList"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">HOST A NEW GAME</div>
+        <div class="game-picker" id="gamePicker"></div>
+        <button class="btn" id="createRoomBtn" style="margin-top: 12px; width: 100%;">CREATE GAME</button>
+      </div>
+    </div>
+
+    <div class="panel" style="width: 100%; margin-top: 16px;">
+      <div class="panel-title">LEADERBOARD</div>
+      <div id="leaderboard"></div>
+    </div>
+  </div>
+
+  <!-- ============ ROOM VIEW ============ -->
+  <div id="view-room" class="view">
+    <div class="room-container" style="display:flex; flex-direction:column; align-items:center;">
+      <div class="room-title" id="roomTitle">ROOM</div>
+      <div class="room-code" id="roomCode">CODE</div>
+      <p id="roomGameLabel" style="color:#ffcb3a;"></p>
+      <p id="roomStatus">Waiting for players…</p>
+
+      <div class="members-list" id="membersList"></div>
+
+      <div>
+        <button class="btn" id="startGameBtn" disabled>START GAME</button>
+        <button class="ghost" id="leaveRoomBtn">LEAVE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ DEV LIST VIEW ============ -->
+  <div id="view-dev-list" class="view">
+    <h1 style="font-size:42px;">DEV MODE</h1>
+    <p>Select a project to improve with Claude, or start a new one.</p>
+    <div class="lobby-header">
+      <div class="user-badge">logged in as <span id="devUserName" class="name"></span></div>
+      <button class="ghost" id="devBackBtn">← BACK TO LOBBY</button>
+    </div>
+    <div class="dev-columns">
+      <div class="panel">
+        <div class="panel-title">MY PROJECTS</div>
+        <div id="projectList"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">START A NEW PROJECT FROM…</div>
+        <p style="color:#667;font-size:11px;margin-bottom:8px;">Pick a base game or a published game to fork. You can rename it in Studio.</p>
+        <div id="availableList"></div>
+
+        <div style="margin-top:18px;padding-top:14px;border-top:1px dashed #2a2a40;">
+          <div class="panel-title" style="margin-bottom:6px;">OR UPLOAD YOUR OWN .HTML</div>
+          <p style="color:#667;font-size:11px;margin-bottom:8px;">Single-file HTML game (all JS/CSS inline). Up to 2 MB.</p>
+          <input type="text" id="newProjectTitle" placeholder="title for the upload (optional)" maxlength="80" style="width:100%;margin-bottom:8px;" />
+          <input type="file" id="uploadFile" accept=".html,text/html" style="display:none;" />
+          <button class="ghost" id="uploadBtn" style="width:100%;">CHOOSE FILE…</button>
+          <p id="uploadError" class="error-text"></p>
+        </div>
+
+        <p id="devUnavailable" style="color:#ff3a5c;font-size:12px;margin-top:10px;display:none;">Claude worker unavailable on this server.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ADMIN USERS VIEW ============ -->
+  <div id="view-admin-users" class="view">
+    <h1 style="font-size:42px;">USER ADMIN</h1>
+    <p>Promote or demote users between <strong>player</strong> and <strong>admin</strong>.</p>
+    <div class="lobby-header">
+      <div class="user-badge">signed in as <span id="adminUserName" class="name"></span></div>
+      <button class="ghost" id="adminBackBtn">← BACK TO LOBBY</button>
+    </div>
+    <div class="panel" style="width: 100%;">
+      <div class="panel-title">USERS</div>
+      <table class="leaderboard-table" id="usersTable" style="font-size:13px;"></table>
+      <p style="color:#667;font-size:11px;margin-top:8px;">Click a row to see recent logins. MAC addresses can't be captured by a web browser (link-layer info that never reaches the server); IP + user-agent are the best we get.</p>
+    </div>
+    <div class="panel" style="width: 100%; margin-top: 16px; display:none;" id="userDetailPanel">
+      <div class="panel-title"><span id="userDetailTitle">USER DETAIL</span> <button class="ghost" style="padding:3px 10px;font-size:11px;float:right;" id="userDetailClose">CLOSE</button></div>
+      <div id="userDetailBody" style="font-size:12px; color:#bcd;"></div>
+    </div>
+    <div class="panel" style="width: 100%; margin-top: 16px;">
+      <div class="panel-title">RECENT ADMIN ACTIONS</div>
+      <div id="adminActionsLog" style="font-size:12px; color:#bcd; max-height:260px; overflow-y:auto;"></div>
+    </div>
+  </div>
+
+  <!-- ============ SYSTEM DEV VIEW ============ -->
+  <div id="view-sysdev" class="view">
+    <div class="studio-header">
+      <div class="studio-title">
+        SYSTEM DEV · edit platform source with Claude
+        <span class="sub" id="sysDevStatus" style="color:#ff8c42;"></span>
+      </div>
+      <div>
+        <button class="ghost" id="sysDevRefreshBtn">↻ REFRESH TREE</button>
+        <button class="ghost" id="sysDevBackBtn">← BACK</button>
+      </div>
+    </div>
+    <div id="sysDevBody">
+      <div class="chat-panel sysdev-col">
+        <div class="chat-header">SOURCE TREE</div>
+        <div id="sysDevTree"></div>
+      </div>
+      <div class="chat-panel sysdev-col">
+        <div class="chat-header">CHAT WITH CLAUDE</div>
+        <div id="sysDevChat"></div>
+        <div class="chat-footer">
+          <textarea id="sysDevInput" placeholder="Describe the platform change… (admin only)"></textarea>
+          <button class="btn" id="sysDevSend">SEND</button>
+        </div>
+      </div>
+      <div class="chat-panel sysdev-col">
+        <div class="chat-header">PROPOSED CHANGES</div>
+        <div id="sysDevDiff">(no pending changes)</div>
+        <div class="chat-footer" style="justify-content:flex-end;">
+          <button class="ghost" id="sysDevDiscard">DISCARD</button>
+          <button class="btn" id="sysDevApply" style="background:linear-gradient(90deg,#ff3a5c,#ffcb3a);">APPLY + RESTART</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PLAY RELEASE VIEW ============ -->
+  <div id="view-play-release" class="view">
+    <div class="studio-header">
+      <div class="studio-title">
+        <span id="playTitle">PUBLISHED GAME</span>
+        <span class="sub" id="playSub"></span>
+      </div>
+      <div>
+        <button class="ghost" id="playReloadBtn">↻ RELOAD</button>
+        <button class="ghost" id="playBackBtn">← BACK TO LOBBY</button>
+      </div>
+    </div>
+    <div style="flex:1; display:flex; padding:10px 0; min-height: 0;">
+      <div id="playFrameWrap">
+        <iframe id="playFrame" sandbox="allow-scripts allow-pointer-lock allow-same-origin"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ STUDIO VIEW ============ -->
+  <div id="view-studio" class="view">
+    <div class="studio-header">
+      <div class="studio-title">
+        <span id="studioProjectTitle">Project</span>
+        <span class="sub" id="studioProjectSub"></span>
+      </div>
+      <div>
+        <button class="ghost" id="reloadFrameBtn">↻ RELOAD</button>
+        <button class="btn" id="releaseBtn" style="padding:6px 18px;font-size:12px;">PUBLISH</button>
+        <button class="ghost" id="studioBackBtn">← BACK</button>
+      </div>
+    </div>
+    <div class="studio-body">
+      <div id="studioFrameWrap">
+        <iframe id="studioFrame" sandbox="allow-scripts allow-pointer-lock allow-same-origin"></iframe>
+      </div>
+      <div class="chat-panel">
+        <div class="chat-header">CHAT WITH CLAUDE</div>
+        <div id="chatMessages"></div>
+        <div class="chat-footer">
+          <textarea id="chatInput" placeholder="Describe what to change… (Enter to send, Shift+Enter for newline)"></textarea>
+          <button class="btn" id="chatSend">SEND</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ WIN VIEW ============ -->
+  <div id="view-win" class="view">
+    <div id="winHeader" style="font-size: 52px; letter-spacing: 6px;"></div>
+    <div class="subtitle" style="color:#ffcb3a; letter-spacing:3px; margin-top:6px;" id="winSub"></div>
+    <div id="winStats" style="margin-top: 14px; color:#bcd; font-size: 14px; line-height: 1.6;"></div>
+    <div style="margin-top: 20px;">
+      <button class="btn" id="rematchBtn">REMATCH</button>
+      <button class="ghost" id="backToLobbyBtn">BACK TO LOBBY</button>
+    </div>
+  </div>
+
+</div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
