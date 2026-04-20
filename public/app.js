@@ -52,8 +52,8 @@ const userDetailClose = document.getElementById('userDetailClose');
 userDetailClose.addEventListener('click', () => userDetailPanel.style.display = 'none');
 
 // Add-game modal
-const addGameBtn      = document.getElementById('addGameBtn');
-const addGameStatusEl = document.getElementById('addGameStatus');
+// addGameStatus element is gone from the admin view; all status now goes to createGameStatus in Dev Mode.
+const addGameStatusEl = { textContent: '' };
 const addGameModal    = document.getElementById('addGameModal');
 const addGameModalSub = document.getElementById('addGameModalSub');
 const addGameCancel   = document.getElementById('addGameCancel');
@@ -72,38 +72,103 @@ function openAddGameModal({ promoteFromRelease } = {}){
   promoteReleaseId = promoteFromRelease || null;
   addGameError.textContent = '';
   newGameId.value = '';
+  newGameId.dataset.userEdited = '';
   newGameName.value = promoteFromRelease ? (promoteFromRelease.title || '') : '';
   newGameDesc.value = promoteFromRelease ? ('Promoted from "' + promoteFromRelease.title + '"') : '';
   newGameMin.value = '1';
   newGameMax.value = '2';
-  addGameModalSub.textContent = promoteFromRelease
-    ? 'Promote "' + promoteFromRelease.title + '" to its own multiplayer repo. The current seed HTML becomes the new repo\'s seed.html; a stub server.js + client.js will be scaffolded.'
-    : 'Creates a new GitHub repo under phillipcheng/ and registers it as a platform submodule. The platform restarts once the game is ready.';
-  addGameModal.style.display = 'flex';
-  newGameId.focus();
-}
-function closeAddGameModal(){ addGameModal.style.display = 'none'; promoteReleaseId = null; }
+  populateBasesDropdown();
+  // Reset radios + upload
+  document.querySelectorAll('input[name="startPoint"]').forEach(r => { r.checked = (r.value === 'blank'); });
+  if (newGameUpload) newGameUpload.value = '';
 
-addGameBtn.addEventListener('click', () => openAddGameModal());
+  const isAdmin = !!(session && session.role === 'admin');
+  multiplayerSection.style.display = isAdmin ? 'block' : 'none';
+
+  if (promoteFromRelease) {
+    addGameTitle.textContent = 'PROMOTE TO MULTIPLAYER';
+    addGameModalSub.textContent = 'Promote "' + promoteFromRelease.title + '" into its own multiplayer repo. The current seed HTML becomes the new repo\'s seed.html.';
+    newGameMultiChk.checked = true;
+    multiplayerFields.style.display = 'block';
+    // Starting point is fixed — the release's HTML
+    document.querySelectorAll('input[name="startPoint"]').forEach(r => r.disabled = true);
+  } else {
+    addGameTitle.textContent = 'CREATE GAME';
+    addGameModalSub.textContent = 'A new project you can iterate on with Claude. Publish when ready.';
+    newGameMultiChk.checked = false;
+    multiplayerFields.style.display = 'none';
+    document.querySelectorAll('input[name="startPoint"]').forEach(r => r.disabled = false);
+  }
+
+  addGameModal.style.display = 'flex';
+  newGameName.focus();
+}
+function closeAddGameModal(){
+  addGameModal.style.display = 'none';
+  promoteReleaseId = null;
+  document.querySelectorAll('input[name="startPoint"]').forEach(r => r.disabled = false);
+  addGameSubmit.disabled = false;
+}
+
 addGameCancel.addEventListener('click', closeAddGameModal);
-addGameSubmit.addEventListener('click', () => {
-  const payload = {
-    id: (newGameId.value || '').trim().toLowerCase(),
-    name: (newGameName.value || '').trim(),
-    description: (newGameDesc.value || '').trim(),
-    minPlayers: Math.max(1, Math.min(8, Number(newGameMin.value) || 1)),
-    maxPlayers: Math.max(1, Math.min(8, Number(newGameMax.value) || 2))
-  };
-  if (!/^[a-z][a-z0-9-]{1,40}$/.test(payload.id)) { addGameError.textContent = 'id must match /^[a-z][a-z0-9-]*$/'; return; }
-  if (!payload.name) { addGameError.textContent = 'name required'; return; }
+
+addGameSubmit.addEventListener('click', async () => {
+  const name = (newGameName.value || '').trim();
+  if (!name) { addGameError.textContent = 'name required'; return; }
+  const startPoint = (document.querySelector('input[name="startPoint"]:checked') || {}).value || 'blank';
+  const multiplayer = !!(newGameMultiChk && newGameMultiChk.checked);
+
+  // Read the uploaded HTML up-front if needed.
+  let seedHtml = null;
+  if (promoteReleaseId) {
+    // Server looks up the release by id; no need to upload
+  } else if (startPoint === 'upload') {
+    const f = newGameUpload && newGameUpload.files && newGameUpload.files[0];
+    if (!f) { addGameError.textContent = 'choose an HTML file'; return; }
+    if (f.size > MAX_UPLOAD_BYTES) { addGameError.textContent = 'file too large (max 2 MB)'; return; }
+    try { seedHtml = await f.text(); }
+    catch { addGameError.textContent = 'could not read file'; return; }
+    if (!/<!doctype html|<html[\s>]/i.test(seedHtml.slice(0, 1000))) {
+      addGameError.textContent = 'does not look like HTML'; return;
+    }
+  }
+
   addGameError.textContent = '';
+  createGameStatus.textContent = 'working…';
   addGameStatusEl.textContent = 'working…';
   addGameSubmit.disabled = true;
-  if (promoteReleaseId) {
-    send({ t: 'admin-promote-game', releaseId: promoteReleaseId.id, ...payload });
-  } else {
-    send({ t: 'admin-add-game', ...payload });
+
+  if (multiplayer) {
+    const id = (newGameId.value || '').trim().toLowerCase();
+    const description = (newGameDesc.value || '').trim();
+    const minPlayers = Math.max(1, Math.min(8, Number(newGameMin.value) || 1));
+    const maxPlayers = Math.max(1, Math.min(8, Number(newGameMax.value) || 2));
+    if (!/^[a-z][a-z0-9-]{1,40}$/.test(id)) {
+      addGameError.textContent = 'repo id must match /^[a-z][a-z0-9-]*$/';
+      addGameSubmit.disabled = false; createGameStatus.textContent = ''; return;
+    }
+    if (promoteReleaseId) {
+      send({ t: 'admin-promote-game', releaseId: promoteReleaseId.id, id, name, description, minPlayers, maxPlayers });
+    } else {
+      send({ t: 'admin-add-game', id, name, description, minPlayers, maxPlayers });
+    }
+    // The admin-game-status handler will close/update.
+    return;
   }
+
+  // Single-player path: creates a dev project (no repo).
+  if (startPoint === 'blank') {
+    // Platform uses a null baseGameId → minimal seed.
+    send({ t: 'dev-create', baseGameId: null, title: name });
+  } else if (startPoint === 'base') {
+    const base = newGameBaseSel.value;
+    send({ t: 'dev-create', baseGameId: base || null, title: name });
+  } else if (startPoint === 'upload') {
+    send({ t: 'dev-upload', title: name, html: seedHtml });
+  }
+  closeAddGameModal();
+  createGameStatus.textContent = 'creating project…';
+  setTimeout(() => { createGameStatus.textContent = ''; }, 5000);
 });
 
 function renderAdminGamesList(){
@@ -536,35 +601,38 @@ function publishedRow(p, mine){
   return row;
 }
 
-// Upload own .html file
-const uploadBtn = document.getElementById('uploadBtn');
-const uploadFile = document.getElementById('uploadFile');
-const uploadError = document.getElementById('uploadError');
+// ========= Unified Create-Game flow =========
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
-uploadBtn.addEventListener('click', () => uploadFile.click());
-uploadFile.addEventListener('change', async () => {
-  uploadError.textContent = '';
-  const f = uploadFile.files && uploadFile.files[0];
-  if (!f) return;
-  if (f.size > MAX_UPLOAD_BYTES) {
-    uploadError.textContent = `file too large (${Math.round(f.size/1024)} KB, max 2048 KB)`;
-    uploadFile.value = '';
-    return;
-  }
-  let text;
-  try { text = await f.text(); }
-  catch (e) { uploadError.textContent = 'could not read file'; return; }
-  if (!/<!doctype html|<html[\s>]/i.test(text.slice(0, 1000))) {
-    uploadError.textContent = 'does not look like HTML';
-    uploadFile.value = '';
-    return;
-  }
-  const defaultTitle = (newProjectTitle.value || '').trim()
-                    || f.name.replace(/\.html?$/i, '').slice(0, 80);
-  send({ t: 'dev-upload', title: defaultTitle, html: text });
-  uploadFile.value = '';
-  newProjectTitle.value = '';
+
+const createGameBtn    = document.getElementById('createGameBtn');
+const createGameStatus = document.getElementById('createGameStatus');
+const newGameBaseSel   = document.getElementById('newGameBase');
+const newGameUpload    = document.getElementById('newGameUpload');
+const newGameMultiChk  = document.getElementById('newGameMultiplayer');
+const multiplayerSection = document.getElementById('multiplayerSection');
+const multiplayerFields  = document.getElementById('multiplayerFields');
+const addGameTitle     = document.getElementById('addGameTitle');
+
+function slugify(s){
+  return String(s || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').replace(/--+/g, '-').slice(0, 42);
+}
+function populateBasesDropdown(){
+  newGameBaseSel.innerHTML = (availableGames.length > 0
+    ? availableGames.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')
+    : '<option value="">(no base games)</option>');
+}
+if (newGameMultiChk) newGameMultiChk.addEventListener('change', () => {
+  multiplayerFields.style.display = newGameMultiChk.checked ? 'block' : 'none';
 });
+document.getElementById('newGameName').addEventListener('input', (e) => {
+  if (newGameMultiChk && newGameMultiChk.checked) {
+    const idField = document.getElementById('newGameId');
+    if (!idField.dataset.userEdited) idField.value = slugify(e.target.value);
+  }
+});
+document.getElementById('newGameId').addEventListener('input', (e) => { e.target.dataset.userEdited = '1'; });
+
+createGameBtn.addEventListener('click', () => openAddGameModal({}));
 
 function renderProjectList(projects){
   projectList.innerHTML = '';
@@ -982,7 +1050,7 @@ function handleServerMessage(msg){
     case 'dev-list':
       devClaudeAvailable = msg.claudeAvailable !== false;
       devUnavailable.style.display = devClaudeAvailable ? 'none' : 'block';
-      createProjectBtn.disabled = !devClaudeAvailable;
+      // create button lives in the unified modal; nothing to toggle here
       renderProjectList(msg.projects || []);
       break;
 
@@ -1043,7 +1111,7 @@ function handleServerMessage(msg){
       break;
 
     case 'admin-game-status':
-      addGameStatusEl.textContent = msg.text || '';
+      createGameStatus.textContent = msg.text || '';
       if (msg.error) {
         addGameError.textContent = msg.error;
         addGameSubmit.disabled = false;
@@ -1052,7 +1120,7 @@ function handleServerMessage(msg){
         addGameSubmit.disabled = false;
         if (!msg.error) {
           closeAddGameModal();
-          setTimeout(() => { addGameStatusEl.textContent = ''; }, 8000);
+          setTimeout(() => { createGameStatus.textContent = ''; }, 8000);
         }
       }
       break;

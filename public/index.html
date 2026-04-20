@@ -528,20 +528,54 @@
         <div id="projectList"></div>
       </div>
       <div class="panel">
-        <div class="panel-title">START A NEW PROJECT FROM…</div>
-        <p style="color:#667;font-size:11px;margin-bottom:8px;">Pick a base game or a published game to fork. You can rename it in Studio.</p>
+        <div class="panel-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>ONLINE GAMES</span>
+          <button class="btn" id="createGameBtn" style="padding:4px 14px;font-size:11px;">+ NEW GAME</button>
+        </div>
+        <p style="color:#667;font-size:11px;margin-bottom:8px;">Click PLAY to play, FORK to copy into your own project, or EDIT if you own it.</p>
         <div id="availableList"></div>
+        <span id="createGameStatus" style="color:#ffcb3a;font-size:11px;"></span>
+        <p id="devUnavailable" style="color:#ff3a5c;font-size:12px;margin-top:10px;display:none;">Claude worker unavailable on this server.</p>
+      </div>
+    </div>
 
-        <div style="margin-top:18px;padding-top:14px;border-top:1px dashed #2a2a40;">
-          <div class="panel-title" style="margin-bottom:6px;">OR UPLOAD YOUR OWN .HTML</div>
-          <p style="color:#667;font-size:11px;margin-bottom:8px;">Single-file HTML game (all JS/CSS inline). Up to 2 MB.</p>
-          <input type="text" id="newProjectTitle" placeholder="title for the upload (optional)" maxlength="80" style="width:100%;margin-bottom:8px;" />
-          <input type="file" id="uploadFile" accept=".html,text/html" style="display:none;" />
-          <button class="ghost" id="uploadBtn" style="width:100%;">CHOOSE FILE…</button>
-          <p id="uploadError" class="error-text"></p>
+    <!-- =========== UNIFIED CREATE-GAME MODAL =========== -->
+    <div id="addGameModal" style="display:none;position:fixed;inset:0;background:rgba(5,5,15,0.9);z-index:30;align-items:center;justify-content:center;">
+      <div style="background:#1a1a28;border:2px solid #ffcb3a;border-radius:6px;padding:22px;min-width:480px;max-width:92vw;max-height:92vh;overflow-y:auto;">
+        <h2 id="addGameTitle" style="margin-bottom:8px;color:#ffd166;">CREATE GAME</h2>
+        <p id="addGameModalSub" style="color:#bcd;font-size:12px;margin-bottom:14px;">A new project you can iterate on with Claude. Publish when ready.</p>
+
+        <div class="form-row"><label>NAME</label><input type="text" id="newGameName" placeholder="Disaster Runner" maxlength="60" /></div>
+
+        <div style="margin:12px 0 8px;font-size:11px;color:#ffcb3a;letter-spacing:2px;">STARTING POINT</div>
+        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;padding-left:90px;">
+          <label style="font-size:13px;color:#bcd;"><input type="radio" name="startPoint" value="blank" checked /> Blank — minimal canvas</label>
+          <label style="font-size:13px;color:#bcd;"><input type="radio" name="startPoint" value="base" /> From base game: <select id="newGameBase" style="background:#1a1a28;color:#fff;border:1px solid #2a2a40;padding:2px 6px;"></select></label>
+          <label style="font-size:13px;color:#bcd;"><input type="radio" name="startPoint" value="upload" /> Upload an HTML file: <input type="file" id="newGameUpload" accept=".html,text/html" style="display:inline-block;width:auto;min-width:0;font-size:11px;" /></label>
         </div>
 
-        <p id="devUnavailable" style="color:#ff3a5c;font-size:12px;margin-top:10px;display:none;">Claude worker unavailable on this server.</p>
+        <div id="multiplayerSection" style="border-top:1px dashed #2a2a40;padding-top:12px;margin-top:10px;display:none;">
+          <label style="font-size:13px;color:#bcd;display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="newGameMultiplayer" />
+            <span>Make multiplayer — creates its own GitHub repo with authoritative server-side sim</span>
+          </label>
+          <div id="multiplayerFields" style="display:none;margin-top:10px;">
+            <div class="form-row"><label>REPO ID</label><input type="text" id="newGameId" placeholder="disaster-runner" maxlength="42" /></div>
+            <div class="form-row"><label>DESC</label><input type="text" id="newGameDesc" placeholder="short description" maxlength="200" /></div>
+            <div class="form-row">
+              <label>PLAYERS</label>
+              <input type="number" id="newGameMin" value="1" min="1" max="8" style="min-width:70px;" /> to
+              <input type="number" id="newGameMax" value="2" min="1" max="8" style="min-width:70px;" />
+            </div>
+            <p style="color:#667;font-size:11px;">For 1-8 players. &gt;2 supported but the game code has to handle N.</p>
+          </div>
+        </div>
+
+        <p class="error-text" id="addGameError"></p>
+        <div style="text-align:right;margin-top:14px;">
+          <button class="ghost" id="addGameCancel">CANCEL</button>
+          <button class="btn" id="addGameSubmit">CREATE</button>
+        </div>
       </div>
     </div>
   </div>
@@ -555,38 +589,15 @@
       <button class="ghost" id="adminBackBtn">← BACK TO LOBBY</button>
     </div>
     <div class="panel" style="width: 100%;">
-      <div class="panel-title">GAMES
-        <button class="btn" id="addGameBtn" style="padding:4px 14px;font-size:11px;margin-left:12px;">+ ADD GAME</button>
-        <span id="addGameStatus" style="color:#ffcb3a;font-size:11px;margin-left:12px;"></span>
-      </div>
+      <div class="panel-title">GAMES</div>
       <div id="adminGamesList" style="font-size:12px;color:#bcd;"></div>
+      <p style="color:#667;font-size:11px;margin-top:8px;">Games are created and promoted from <strong>DEV MODE</strong>. This panel is read-only.</p>
     </div>
 
     <div class="panel" style="width: 100%; margin-top:16px;">
       <div class="panel-title">USERS</div>
       <table class="leaderboard-table" id="usersTable" style="font-size:13px;"></table>
       <p style="color:#667;font-size:11px;margin-top:8px;">Click a row to see recent logins. MAC addresses can't be captured by a web browser (link-layer info that never reaches the server); IP + user-agent are the best we get.</p>
-    </div>
-
-    <!-- ADD GAME MODAL -->
-    <div id="addGameModal" style="display:none;position:fixed;inset:0;background:rgba(5,5,15,0.9);z-index:30;align-items:center;justify-content:center;">
-      <div style="background:#1a1a28;border:2px solid #ffcb3a;border-radius:6px;padding:22px;min-width:460px;max-width:92vw;">
-        <h2 style="margin-bottom:12px;color:#ffd166;">ADD GAME</h2>
-        <p id="addGameModalSub" style="color:#bcd;font-size:12px;margin-bottom:14px;">Creates a new GitHub repo under phillipcheng/ and registers it as a platform submodule. The platform restarts once the game is ready.</p>
-        <div class="form-row"><label>ID</label><input type="text" id="newGameId" placeholder="disaster-runner" maxlength="42" /></div>
-        <div class="form-row"><label>NAME</label><input type="text" id="newGameName" placeholder="Disaster Runner" maxlength="60" /></div>
-        <div class="form-row"><label>DESCRIPTION</label><input type="text" id="newGameDesc" placeholder="Dodge falling rocks" maxlength="200" /></div>
-        <div class="form-row">
-          <label>PLAYERS</label>
-          <input type="number" id="newGameMin" value="1" min="1" max="8" style="min-width:70px;" /> to
-          <input type="number" id="newGameMax" value="2" min="1" max="8" style="min-width:70px;" />
-        </div>
-        <p class="error-text" id="addGameError"></p>
-        <div style="text-align:right;margin-top:14px;">
-          <button class="ghost" id="addGameCancel">CANCEL</button>
-          <button class="btn" id="addGameSubmit">CREATE</button>
-        </div>
-      </div>
     </div>
     <div class="panel" style="width: 100%; margin-top: 16px; display:none;" id="userDetailPanel">
       <div class="panel-title"><span id="userDetailTitle">USER DETAIL</span> <button class="ghost" style="padding:3px 10px;font-size:11px;float:right;" id="userDetailClose">CLOSE</button></div>
