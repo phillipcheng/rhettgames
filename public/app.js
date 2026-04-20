@@ -51,6 +51,72 @@ const userDetailBody  = document.getElementById('userDetailBody');
 const userDetailClose = document.getElementById('userDetailClose');
 userDetailClose.addEventListener('click', () => userDetailPanel.style.display = 'none');
 
+// Add-game modal
+const addGameBtn      = document.getElementById('addGameBtn');
+const addGameStatusEl = document.getElementById('addGameStatus');
+const addGameModal    = document.getElementById('addGameModal');
+const addGameModalSub = document.getElementById('addGameModalSub');
+const addGameCancel   = document.getElementById('addGameCancel');
+const addGameSubmit   = document.getElementById('addGameSubmit');
+const addGameError    = document.getElementById('addGameError');
+const newGameId   = document.getElementById('newGameId');
+const newGameName = document.getElementById('newGameName');
+const newGameDesc = document.getElementById('newGameDesc');
+const newGameMin  = document.getElementById('newGameMin');
+const newGameMax  = document.getElementById('newGameMax');
+const adminGamesListEl = document.getElementById('adminGamesList');
+
+let promoteReleaseId = null;
+
+function openAddGameModal({ promoteFromRelease } = {}){
+  promoteReleaseId = promoteFromRelease || null;
+  addGameError.textContent = '';
+  newGameId.value = '';
+  newGameName.value = promoteFromRelease ? (promoteFromRelease.title || '') : '';
+  newGameDesc.value = promoteFromRelease ? ('Promoted from "' + promoteFromRelease.title + '"') : '';
+  newGameMin.value = '1';
+  newGameMax.value = '2';
+  addGameModalSub.textContent = promoteFromRelease
+    ? 'Promote "' + promoteFromRelease.title + '" to its own multiplayer repo. The current seed HTML becomes the new repo\'s seed.html; a stub server.js + client.js will be scaffolded.'
+    : 'Creates a new GitHub repo under phillipcheng/ and registers it as a platform submodule. The platform restarts once the game is ready.';
+  addGameModal.style.display = 'flex';
+  newGameId.focus();
+}
+function closeAddGameModal(){ addGameModal.style.display = 'none'; promoteReleaseId = null; }
+
+addGameBtn.addEventListener('click', () => openAddGameModal());
+addGameCancel.addEventListener('click', closeAddGameModal);
+addGameSubmit.addEventListener('click', () => {
+  const payload = {
+    id: (newGameId.value || '').trim().toLowerCase(),
+    name: (newGameName.value || '').trim(),
+    description: (newGameDesc.value || '').trim(),
+    minPlayers: Math.max(1, Math.min(8, Number(newGameMin.value) || 1)),
+    maxPlayers: Math.max(1, Math.min(8, Number(newGameMax.value) || 2))
+  };
+  if (!/^[a-z][a-z0-9-]{1,40}$/.test(payload.id)) { addGameError.textContent = 'id must match /^[a-z][a-z0-9-]*$/'; return; }
+  if (!payload.name) { addGameError.textContent = 'name required'; return; }
+  addGameError.textContent = '';
+  addGameStatusEl.textContent = 'working…';
+  addGameSubmit.disabled = true;
+  if (promoteReleaseId) {
+    send({ t: 'admin-promote-game', releaseId: promoteReleaseId.id, ...payload });
+  } else {
+    send({ t: 'admin-add-game', ...payload });
+  }
+});
+
+function renderAdminGamesList(){
+  // Cheap: just show the known availableGames + a note
+  if (!availableGames || availableGames.length === 0) { adminGamesListEl.innerHTML = '<div class="empty-list">(none registered)</div>'; return; }
+  adminGamesListEl.innerHTML = availableGames.map(g =>
+    `<div style="padding:6px 0;border-bottom:1px solid #2a2a40;">
+       <span style="color:#fff;font-weight:bold;">${escapeHtml(g.name)}</span>
+       <span style="color:#789;">· <code>${escapeHtml(g.id)}</code> · ${g.minPlayers}-${g.maxPlayers} players</span>
+     </div>`
+  ).join('');
+}
+
 // System dev
 const sysDevStatusEl = document.getElementById('sysDevStatus');
 const sysDevTreeEl   = document.getElementById('sysDevTree');
@@ -248,6 +314,7 @@ adminBtn.addEventListener('click', () => {
   if (!session || session.role !== 'admin') return;
   adminUserName.textContent = session.name;
   send({ t: 'admin-users-list' });
+  renderAdminGamesList();
   showView('admin-users');
 });
 adminBackBtn.addEventListener('click', () => showView('lobby'));
@@ -427,10 +494,16 @@ function publishedRow(p, mine){
   row.className = 'project-row';
   const when = new Date(p.released_at).toLocaleDateString();
   const canEdit = mine && p.dev_game_id && myProjectIds.has(p.dev_game_id);
+  const isAdmin = session && session.role === 'admin';
+  const promoteBtn = isAdmin
+    ? `<button class="ghost" style="padding:4px 10px;font-size:11px;color:#c8a8ff;" data-promote="${p.id}">PROMOTE</button>`
+    : '';
   const actions = canEdit
-    ? `<button class="ghost" style="padding:4px 10px;font-size:11px;" data-play="${p.id}">PLAY</button>
+    ? `${promoteBtn}
+       <button class="ghost" style="padding:4px 10px;font-size:11px;" data-play="${p.id}">PLAY</button>
        <button class="btn" style="padding:4px 12px;font-size:11px;" data-edit="${p.dev_game_id}">EDIT</button>`
-    : `<button class="ghost" style="padding:4px 10px;font-size:11px;" data-play="${p.id}">PLAY</button>
+    : `${promoteBtn}
+       <button class="ghost" style="padding:4px 10px;font-size:11px;" data-play="${p.id}">PLAY</button>
        <button class="btn" style="padding:4px 12px;font-size:11px;" data-fork="${p.id}">FORK</button>`;
   const ownerBadge = mine
     ? '<span style="background:#3a9dff;color:#002;padding:1px 6px;border-radius:3px;font-size:10px;margin-left:4px;font-weight:bold;letter-spacing:1px;">YOU</span>'
@@ -454,6 +527,11 @@ function publishedRow(p, mine){
     const title = prompt('Title for your fork:', 'Fork of ' + p.title);
     if (title === null) return;
     send({ t: 'dev-fork', releaseId: p.id, title: title || null });
+  });
+  const promoteBtnEl = row.querySelector('[data-promote]');
+  if (promoteBtnEl) promoteBtnEl.addEventListener('click', e => {
+    e.stopPropagation();
+    openAddGameModal({ promoteFromRelease: p });
   });
   return row;
 }
@@ -962,6 +1040,21 @@ function handleServerMessage(msg){
 
     case 'admin-user-detail':
       renderUserDetail(msg);
+      break;
+
+    case 'admin-game-status':
+      addGameStatusEl.textContent = msg.text || '';
+      if (msg.error) {
+        addGameError.textContent = msg.error;
+        addGameSubmit.disabled = false;
+      }
+      if (msg.done) {
+        addGameSubmit.disabled = false;
+        if (!msg.error) {
+          closeAddGameModal();
+          setTimeout(() => { addGameStatusEl.textContent = ''; }, 8000);
+        }
+      }
       break;
 
     case 'sysdev-tree':

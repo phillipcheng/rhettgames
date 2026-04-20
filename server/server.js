@@ -12,6 +12,7 @@ import * as devStudio from './dev-studio.js';
 import * as sysdev from './sysdev.js';
 import * as claudeClient from './claude-client.js';
 import { ensureBaseGamesPublished } from './bootstrap.js';
+import * as gameManager from './game-manager.js';
 import { listGameMeta } from './games/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -407,6 +408,39 @@ async function handleMessage(ws, c, msg){
     if (!user) return sendTo(ws, { t: 'error', error: 'user not found' });
     const logins = db.recentLoginsForUser(targetId);
     sendTo(ws, { t: 'admin-user-detail', user, logins });
+    return;
+  }
+  if (t === 'admin-add-game') {
+    if (!isAdmin()) return sendTo(ws, { t: 'error', error: 'admin only' });
+    sendTo(ws, { t: 'admin-game-status', text: 'creating repo + scaffolding…' });
+    const res = await gameManager.createGameRepo({
+      id: (msg.id || '').toLowerCase().trim(),
+      name: msg.name,
+      description: msg.description,
+      minPlayers: msg.minPlayers,
+      maxPlayers: msg.maxPlayers
+    }, { actorId: me.userId });
+    if (!res.ok) return sendTo(ws, { t: 'admin-game-status', text: 'failed', error: res.error, done: true });
+    sendTo(ws, { t: 'admin-game-status',
+      text: 'created ' + res.repoUrl + ' · restart queued',
+      game: res, done: true
+    });
+    return;
+  }
+  if (t === 'admin-promote-game') {
+    if (!isAdmin()) return sendTo(ws, { t: 'error', error: 'admin only' });
+    sendTo(ws, { t: 'admin-game-status', text: 'promoting…' });
+    const res = await gameManager.promoteReleaseToGame({
+      releaseId: msg.releaseId | 0,
+      id: (msg.id || '').toLowerCase().trim(),
+      name: msg.name, description: msg.description,
+      minPlayers: msg.minPlayers, maxPlayers: msg.maxPlayers
+    }, { actorId: me.userId });
+    if (!res.ok) return sendTo(ws, { t: 'admin-game-status', text: 'failed', error: res.error, done: true });
+    sendTo(ws, { t: 'admin-game-status',
+      text: 'promoted to ' + res.repoUrl + ' · restart queued',
+      game: res, done: true
+    });
     return;
   }
 
