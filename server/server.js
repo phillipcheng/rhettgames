@@ -413,8 +413,14 @@ async function handleMessage(ws, c, msg){
   if (t === 'admin-add-game') {
     if (!isAdmin()) return sendTo(ws, { t: 'error', error: 'admin only' });
     sendTo(ws, { t: 'admin-game-status', text: 'creating repo + scaffolding…' });
-    // Allow seedHtml from upload, or baseGameId to pull a built-in's seed.
+    // Allow seedHtml directly from upload, a baseGameId (built-in seed), or a
+    // devGameId (promote an admin's existing single-player project to its own
+    // multiplayer repo — no intermediate publish step required).
     let seedHtml = typeof msg.seedHtml === 'string' ? msg.seedHtml : null;
+    if (!seedHtml && msg.devGameId) {
+      const p = db.getDevProject(msg.devGameId | 0);
+      if (p) seedHtml = p.html;
+    }
     if (!seedHtml && msg.baseGameId) {
       const fs = await import('fs');
       const path = await import('path');

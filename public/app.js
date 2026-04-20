@@ -67,30 +67,36 @@ const newGameMax  = document.getElementById('newGameMax');
 const adminGamesListEl = document.getElementById('adminGamesList');
 
 let promoteReleaseId = null;
+let promoteProject = null;
 
-function openAddGameModal({ promoteFromRelease } = {}){
+function openAddGameModal({ promoteFromRelease, promoteFromProject } = {}){
   promoteReleaseId = promoteFromRelease || null;
+  promoteProject   = promoteFromProject || null;
   addGameError.textContent = '';
   newGameId.value = '';
   newGameId.dataset.userEdited = '';
-  newGameName.value = promoteFromRelease ? (promoteFromRelease.title || '') : '';
-  newGameDesc.value = promoteFromRelease ? ('Promoted from "' + promoteFromRelease.title + '"') : '';
+  const promoteSrc = promoteFromRelease || promoteFromProject;
+  newGameName.value = promoteSrc ? (promoteSrc.title || '') : '';
+  newGameDesc.value = promoteSrc ? ('Promoted from "' + promoteSrc.title + '"') : '';
   newGameMin.value = '1';
   newGameMax.value = '2';
   populateBasesDropdown();
-  // Reset radios + upload
   document.querySelectorAll('input[name="startPoint"]').forEach(r => { r.checked = (r.value === 'blank'); });
   if (newGameUpload) newGameUpload.value = '';
 
   const isAdmin = !!(session && session.role === 'admin');
   multiplayerSection.style.display = isAdmin ? 'block' : 'none';
 
-  if (promoteFromRelease) {
+  if (promoteSrc) {
     addGameTitle.textContent = 'PROMOTE TO MULTIPLAYER';
-    addGameModalSub.textContent = 'Promote "' + promoteFromRelease.title + '" into its own multiplayer repo. The current seed HTML becomes the new repo\'s seed.html.';
+    addGameModalSub.textContent = promoteFromRelease
+      ? 'Promote "' + promoteSrc.title + '" (published v' + promoteFromRelease.version + ') into its own multiplayer repo. The release HTML becomes the new repo\'s seed.html.'
+      : 'Promote "' + promoteSrc.title + '" (dev project, not yet published) into its own multiplayer repo. The current project HTML becomes the new repo\'s seed.html.';
     newGameMultiChk.checked = true;
     multiplayerFields.style.display = 'block';
-    // Starting point is fixed — the release's HTML
+    // Pre-fill repo id from title
+    newGameId.value = slugify(promoteSrc.title || '');
+    // Starting point is fixed on promote — source already decided
     document.querySelectorAll('input[name="startPoint"]').forEach(r => r.disabled = true);
   } else {
     addGameTitle.textContent = 'CREATE GAME';
@@ -106,6 +112,7 @@ function openAddGameModal({ promoteFromRelease } = {}){
 function closeAddGameModal(){
   addGameModal.style.display = 'none';
   promoteReleaseId = null;
+  promoteProject   = null;
   document.querySelectorAll('input[name="startPoint"]').forEach(r => r.disabled = false);
   addGameSubmit.disabled = false;
 }
@@ -149,8 +156,9 @@ addGameSubmit.addEventListener('click', async () => {
     }
     if (promoteReleaseId) {
       send({ t: 'admin-promote-game', releaseId: promoteReleaseId.id, id, name, description, minPlayers, maxPlayers });
+    } else if (promoteProject) {
+      send({ t: 'admin-add-game', id, name, description, minPlayers, maxPlayers, devGameId: promoteProject.id });
     } else {
-      // If the user uploaded an HTML or picked a base, pass it as the seed for the scaffolded repo.
       const payload = { t: 'admin-add-game', id, name, description, minPlayers, maxPlayers };
       if (startPoint === 'upload' && seedHtml) payload.seedHtml = seedHtml;
       else if (startPoint === 'base' && newGameBaseSel.value) payload.baseGameId = newGameBaseSel.value;
@@ -558,15 +566,24 @@ function renderAvailableList(){
   }
 }
 
+function isMultiplayerBase(baseId){
+  if (!baseId) return false;
+  return (availableGames || []).some(g => g.id === baseId);
+}
+
 function publishedRow(p, mine){
   const row = document.createElement('div');
   row.className = 'project-row';
   const when = new Date(p.released_at).toLocaleDateString();
   const canEdit = mine && p.dev_game_id && myProjectIds.has(p.dev_game_id);
   const isAdmin = session && session.role === 'admin';
-  const promoteBtn = isAdmin
+  const alreadyMultiplayer = isMultiplayerBase(p.base_game_id);
+  const promoteBtn = (isAdmin && !alreadyMultiplayer)
     ? `<button class="ghost" style="padding:4px 10px;font-size:11px;color:#c8a8ff;" data-promote="${p.id}">PROMOTE</button>`
     : '';
+  const modeBadge = alreadyMultiplayer
+    ? '<span style="background:#a078ff;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px;margin-left:4px;">🎮 MULTIPLAYER</span>'
+    : '<span style="background:#2a3a55;color:#bcd;padding:1px 6px;border-radius:3px;font-size:10px;margin-left:4px;">SOLO</span>';
   const actions = canEdit
     ? `${promoteBtn}
        <button class="ghost" style="padding:4px 10px;font-size:11px;" data-play="${p.id}">PLAY</button>
@@ -581,6 +598,7 @@ function publishedRow(p, mine){
     <div class="meta">
       <span class="title">${escapeHtml(p.title)}
         <span style="background:#3aff9d;color:#002;padding:1px 6px;border-radius:3px;font-size:10px;margin-left:4px;">v${p.version}</span>
+        ${modeBadge}
         ${ownerBadge}
       </span>
       <span class="sub">based on ${escapeHtml(p.base_game_id || 'scratch')} · ${when} · ${p.play_count} plays</span>
@@ -647,21 +665,28 @@ function renderProjectList(projects){
     projectList.innerHTML = '<div class="empty-list">No projects yet. Start one →</div>';
     return;
   }
+  const isAdmin = session && session.role === 'admin';
   for (const p of projects) {
     const el = document.createElement('div');
     el.className = 'project-row';
     const when = new Date(p.updated_at).toLocaleString();
+    const promoteBtn = isAdmin
+      ? `<button class="ghost" style="padding:3px 10px;font-size:11px;color:#c8a8ff;margin-right:4px;" data-promote-proj="${p.id}" data-title="${escapeHtml(p.title)}">PROMOTE</button>`
+      : '';
     el.innerHTML = `
       <div class="meta">
-        <span class="title">${escapeHtml(p.title)}</span>
+        <span class="title">${escapeHtml(p.title)}
+          <span style="background:#2a3a55;color:#bcd;padding:1px 6px;border-radius:3px;font-size:10px;margin-left:4px;">SOLO</span>
+        </span>
         <span class="sub">based on ${escapeHtml(p.base_game_id || 'scratch')} · updated ${when} · ${p.message_count} msgs</span>
       </div>
       <div class="actions">
+        ${promoteBtn}
         <button class="del-btn" data-del="${p.id}">DELETE</button>
       </div>
     `;
     el.addEventListener('click', e => {
-      if (e.target.closest('[data-del]')) return;
+      if (e.target.closest('[data-del]') || e.target.closest('[data-promote-proj]')) return;
       send({ t: 'dev-open', id: p.id });
     });
     const delBtn = el.querySelector('[data-del]');
@@ -670,6 +695,11 @@ function renderProjectList(projects){
       if (confirm('Delete "' + p.title + '"? This cannot be undone.')) {
         send({ t: 'dev-delete', id: p.id });
       }
+    });
+    const promoteEl = el.querySelector('[data-promote-proj]');
+    if (promoteEl) promoteEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openAddGameModal({ promoteFromProject: { id: p.id, title: p.title, base_game_id: p.base_game_id } });
     });
     projectList.appendChild(el);
   }
