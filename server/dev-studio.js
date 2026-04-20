@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import * as db from './db.js';
 import * as claudeClient from './claude-client.js';
@@ -284,7 +285,70 @@ export function release(userId, id){
     baseGameId: p.base_game_id,
     html
   });
+  // Best-effort: push the HTML to a branch on the game's own repo so the
+  // release has a git trail too. Runs async — failure is logged but does
+  // not fail the release.
+  if (p.base_game_id) {
+    const author = db.findUserById(userId);
+    pushReleaseToGameRepo({
+      baseGameId: p.base_game_id,
+      devGameId: id,
+      version: rel.version,
+      authorName: (author && author.name) || 'user' + userId,
+      html
+    }).catch(err => console.error('[dev-studio] game-repo push failed:', err.message));
+  }
   return { ok: true, release: rel };
+}
+
+// Commit + push the HTML snapshot to a branch in the game's submodule repo.
+// Branch name: release/<author>/<devGameId>/v<N>
+async function pushReleaseToGameRepo({ baseGameId, devGameId, version, authorName, html }){
+  const repoDir = path.join(ROOT, 'games', baseGameId);
+  if (!fs.existsSync(path.join(repoDir, '.git'))) {
+    console.log(`[dev-studio] ${baseGameId} is not a git submodule — skipping push`);
+    return;
+  }
+  const safeAuthor = String(authorName).replace(/[^A-Za-z0-9_-]/g, '_');
+  const branch = `release/${safeAuthor}/${devGameId}/v${version}`;
+  const prev = (await runGitIn(repoDir, ['rev-parse', '--abbrev-ref', 'HEAD'])).out.trim() || 'main';
+
+  try {
+    // Always branch off the current main (fetch first so we're current).
+    await runGitIn(repoDir, ['fetch', 'origin', 'main']);
+    await runGitIn(repoDir, ['checkout', 'main']);
+    await runGitIn(repoDir, ['pull', '--ff-only', 'origin', 'main']);
+    await runGitIn(repoDir, ['checkout', '-B', branch]);
+    fs.writeFileSync(path.join(repoDir, 'seed.html'), html);
+    await runGitIn(repoDir, ['add', 'seed.html']);
+    const status = await runGitIn(repoDir, ['status', '--porcelain']);
+    if (!status.out.trim()) {
+      console.log(`[dev-studio] ${baseGameId} ${branch}: no changes vs main, skipping push`);
+    } else {
+      const msg = `release v${version} by ${authorName} (dev-game ${devGameId})`;
+      const author = `${authorName} <${safeAuthor}@rhettgames.local>`;
+      await runGitIn(repoDir, ['commit', '-m', msg, '--author', author]);
+      const push = await runGitIn(repoDir, ['push', 'origin', branch, '--force-with-lease']);
+      if (push.code !== 0) {
+        console.error(`[dev-studio] ${baseGameId} push failed:`, push.err.slice(0, 200));
+      } else {
+        console.log(`[dev-studio] pushed ${baseGameId} ${branch}`);
+      }
+    }
+  } finally {
+    // Leave the submodule on its previous ref so the platform keeps working.
+    try { await runGitIn(repoDir, ['checkout', prev]); } catch {}
+  }
+}
+
+function runGitIn(dir, args){
+  return new Promise((resolve) => {
+    const p = spawn('git', args, { cwd: dir });
+    let out = '', err = '';
+    p.stdout.on('data', d => out += d.toString());
+    p.stderr.on('data', d => err += d.toString());
+    p.on('close', code => resolve({ code, out, err }));
+  });
 }
 
 export function listPublished(){

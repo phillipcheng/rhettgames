@@ -965,7 +965,7 @@ function handleServerMessage(msg){
       break;
 
     case 'sysdev-tree':
-      renderSysDevTree(msg.tree || [], msg.diff || '', msg.head || '');
+      renderSysDevTree(msg.tree || [], msg.diff || '', msg.head || '', msg.branch || '');
       break;
 
     case 'sysdev-chat-chunk':
@@ -990,12 +990,15 @@ function handleServerMessage(msg){
   }
 }
 
-function renderSysDevTree(tree, diff, head){
+function renderSysDevTree(tree, diff, head, branch){
   sysDevTreeEl.innerHTML = (tree || []).map(f =>
     `<div style="padding:2px 0;"><span style="color:#9d6bff;">${escapeHtml(f.kind === 'dir' ? '📁 ' : '📄 ')}</span>${escapeHtml(f.path)} <span style="color:#667;">${f.size ? '(' + f.size + 'b)' : ''}</span></div>`
   ).join('');
   if (diff) sysDevDiffEl.textContent = diff;
-  if (head) sysDevStatusEl.textContent = ' · HEAD ' + head;
+  const parts = [];
+  if (head) parts.push('HEAD ' + head);
+  if (branch) parts.push('branch ' + branch);
+  sysDevStatusEl.textContent = parts.length ? ' · ' + parts.join(' · ') : '';
 }
 
 // ============ Util ============

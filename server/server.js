@@ -416,7 +416,8 @@ async function handleMessage(ws, c, msg){
     const tree = sysdev.listTree();
     const diff = await sysdev.getDiff();
     const head = await sysdev.getHead();
-    sendTo(ws, { t: 'sysdev-tree', tree, diff, head });
+    const branch = sysdev.getCurrentBranch();
+    sendTo(ws, { t: 'sysdev-tree', tree, diff, head, branch });
     return;
   }
   if (t === 'sysdev-chat') {

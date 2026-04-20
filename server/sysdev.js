@@ -50,6 +50,11 @@ include the diff in your reply.`;
 // Conversation history (ephemeral, per server run)
 let history = []; // [{ role, content }]
 
+// Current sysdev session branch. We cut a branch off main the first time a
+// chat lands in a session (or after the previous branch was applied/discarded)
+// and keep using it until apply/discard resets this to null.
+let currentBranch = null;
+
 // ========= File tree =========
 
 export function listTree(){
@@ -104,6 +109,28 @@ async function hasPendingChanges(){
   return (r.out || '').trim().length > 0;
 }
 
+async function currentGitBranch(){
+  const r = await runGit(['rev-parse', '--abbrev-ref', 'HEAD']);
+  return (r.out || '').trim();
+}
+
+async function ensureSessionBranch(){
+  const onBranch = await currentGitBranch();
+  if (currentBranch && onBranch === currentBranch) return currentBranch;
+  // Start fresh from main.
+  await runGit(['checkout', 'main']);
+  const name = 'sysdev/' + new Date().toISOString().replace(/[:.]/g, '-');
+  const r = await runGit(['checkout', '-b', name]);
+  if (r.code !== 0) {
+    // Fallback: try switching if branch already exists (shouldn't normally).
+    await runGit(['checkout', name]);
+  }
+  currentBranch = name;
+  return name;
+}
+
+export function getCurrentBranch(){ return currentBranch; }
+
 async function stageAll(){
   await runGit(['add', '-A']);
 }
@@ -122,10 +149,16 @@ async function commit(message, author){
 }
 
 export async function discardChanges(){
-  // Revert working tree to HEAD; wipe any untracked files.
+  // Drop working-tree changes, switch back to main, delete the sysdev branch.
   await runGit(['restore', '--staged', '.']);
   await runGit(['checkout', '--', '.']);
   await runGit(['clean', '-fd']);
+  if (currentBranch) {
+    const branch = currentBranch;
+    currentBranch = null;
+    await runGit(['checkout', 'main']);
+    await runGit(['branch', '-D', branch]);
+  }
 }
 
 export async function resetToHead(ref){
@@ -150,6 +183,13 @@ export async function chatStream(message, adminUser, { onChunk, onDone, onError 
     return;
   }
   history.push({ role: 'user', content: message.trim() });
+
+  // Make sure we're working on a sysdev/* branch cut off main.
+  try { await ensureSessionBranch(); }
+  catch (err) {
+    onError && onError(new Error('could not prepare branch: ' + err.message));
+    return;
+  }
 
   const priorText = history.slice(-20).map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
   const prompt = `WORKING DIRECTORY: ${ROOT}
@@ -201,37 +241,66 @@ Respond to the latest user message. Use the Read/Edit/Write tools to make the ch
 
 export async function applyChanges(adminUser){
   const pending = await hasPendingChanges();
-  if (!pending) return { ok: false, error: 'no pending changes' };
-
+  const onBranch = await currentGitBranch();
+  const branch = currentBranch;
+  if (!branch || onBranch !== branch) {
+    return { ok: false, error: 'no active sysdev branch — nothing to apply' };
+  }
   const prevHead = await getHead();
-  const diff = await getDiff();
-  const firstLine = diff.split('\n').find(l => l.startsWith('diff --git')) || 'platform change';
-  const message = `sysdev: ${firstLine.replace('diff --git ', '').slice(0, 120)}\n\nAuthor: ${adminUser.name}`;
-  const author = `${adminUser.name} <${adminUser.name}@rhettgames.local>`;
 
-  const c = await commit(message, author);
-  if (!c.ok) {
-    db.logAdminAction({
-      actorId: adminUser.userId, kind: 'sysdev-apply', target: '',
-      details: 'commit failed: ' + (c.stderr || '').slice(0, 200), ok: false
-    });
-    return { ok: false, error: 'commit failed: ' + (c.stderr || '').slice(0, 200) };
+  // Commit whatever's pending on the branch.
+  if (pending) {
+    const diff = await getDiff();
+    const firstLine = diff.split('\n').find(l => l.startsWith('diff --git')) || 'platform change';
+    const message = `sysdev: ${firstLine.replace('diff --git ', '').slice(0, 120)}\n\nBranch: ${branch}\nAuthor: ${adminUser.name}`;
+    const author = `${adminUser.name} <${adminUser.name}@rhettgames.local>`;
+    const c = await commit(message, author);
+    if (!c.ok) {
+      db.logAdminAction({ actorId: adminUser.userId, kind: 'sysdev-apply', details: 'commit failed: ' + (c.stderr || '').slice(0, 200), ok: false });
+      return { ok: false, error: 'commit failed: ' + (c.stderr || '').slice(0, 200) };
+    }
   }
 
+  // Switch to main + fast-forward merge the sysdev branch.
+  const co = await runGit(['checkout', 'main']);
+  if (co.code !== 0) {
+    return { ok: false, error: 'could not switch to main: ' + co.err };
+  }
+  const mr = await runGit(['merge', '--ff-only', branch]);
+  if (mr.code !== 0) {
+    // If ff-only fails, merge with a merge commit.
+    const mr2 = await runGit(['merge', '--no-ff', '-m', `sysdev: merge ${branch}`, branch]);
+    if (mr2.code !== 0) {
+      return { ok: false, error: 'merge failed: ' + (mr2.err || mr.err).slice(0, 200) };
+    }
+  }
   const newHead = await getHead();
+
+  // Push to origin (best-effort; don't block the apply on failure).
+  let pushDetail = '';
+  if (process.env.GITHUB_TOKEN) {
+    const push = await runGit(['push', 'origin', 'main']);
+    pushDetail = push.code === 0 ? 'pushed' : ('push failed: ' + (push.err || '').slice(0, 160));
+  } else {
+    pushDetail = 'no GITHUB_TOKEN — skipped push';
+  }
+
+  // Delete the local sysdev branch now that it's merged.
+  await runGit(['branch', '-d', branch]);
+  currentBranch = null;
+
   db.logAdminAction({
     actorId: adminUser.userId, kind: 'sysdev-apply',
-    target: newHead, details: `prev=${prevHead} diff=${diff.length}b`, ok: true
+    target: newHead, details: `branch=${branch} prev=${prevHead} ${pushDetail}`, ok: true
   });
 
-  // Kick off the restart asynchronously so our reply can flush first.
   setTimeout(() => {
     restartServiceWithHealthcheck(prevHead, newHead, adminUser).catch(err => {
       console.error('[sysdev] restart handler error:', err);
     });
   }, 200);
 
-  return { ok: true, prevHead, newHead };
+  return { ok: true, prevHead, newHead, branch, pushDetail };
 }
 
 function httpHealthy(){
