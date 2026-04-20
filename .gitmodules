@@ -6,3 +6,7 @@
 	path = games/demon-slayer
 	url = https://github.com/phillipcheng/demon-slayer.git
 	branch = main
+[submodule "games/demo-game-5fet"]
+	path = games/demo-game-5fet
+	url = https://github.com/phillipcheng/demo-game-5fet.git
+	branch = main
