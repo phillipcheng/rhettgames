@@ -7,7 +7,7 @@ import * as claudeClient from './claude-client.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '..');
-const SEED_DIR = path.resolve(__dirname, 'games');
+const SEED_DIR = path.resolve(ROOT, 'games');
 const PROJECTS_DIR = process.env.PROJECTS_DIR || path.join(ROOT, 'data', 'projects');
 
 try { fs.mkdirSync(PROJECTS_DIR, { recursive: true }); } catch {}

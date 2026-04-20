@@ -66,11 +66,11 @@ function handleHttp(req, res){
 
   let filePath = null;
   let serveUrl = pathname === '/' ? '/index.html' : pathname;
-  if (serveUrl.startsWith('/shared/')) {
+  if (serveUrl.startsWith('/games/')) {
+    // Game files live at <repo-root>/games/<id>/<file>
     filePath = safeJoin(ROOT, serveUrl);
-  } else if (serveUrl.startsWith('/games/')) {
-    // e.g. /games/gungame/client.js maps to public/games/gungame/client.js
-    filePath = safeJoin(path.join(ROOT, 'public'), serveUrl);
+  } else if (serveUrl.startsWith('/shared/')) {
+    filePath = safeJoin(ROOT, serveUrl);
   } else {
     filePath = safeJoin(path.join(ROOT, 'public'), serveUrl);
   }

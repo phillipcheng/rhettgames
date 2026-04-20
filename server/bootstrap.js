@@ -31,7 +31,7 @@ export function ensureBaseGamesPublished(){
     return;
   }
   for (const [id, entry] of Object.entries(GAMES)) {
-    const seedPath = path.join(__dirname, 'games', id, 'seed.html');
+    const seedPath = path.join(ROOT, 'games', id, 'seed.html');
     if (!fs.existsSync(seedPath)) continue;
     const existing = db.db.prepare(
       `SELECT r.id FROM released_games r

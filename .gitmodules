@@ -1,0 +1,8 @@
+[submodule "games/gungame"]
+	path = games/gungame
+	url = git@github.com:phillipcheng/gungame.git
+	branch = main
+[submodule "games/demon-slayer"]
+	path = games/demon-slayer
+	url = git@github.com:phillipcheng/demon-slayer.git
+	branch = main
