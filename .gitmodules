@@ -1,7 +1,3 @@
-[submodule "games/gungame"]
-	path = games/gungame
-	url = https://github.com/phillipcheng/gungame.git
-	branch = main
 [submodule "games/demon-slayer"]
 	path = games/demon-slayer
 	url = https://github.com/phillipcheng/demon-slayer.git
