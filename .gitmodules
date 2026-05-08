@@ -6,3 +6,7 @@
 	path = games/fork-of-gun-game-2-0
 	url = https://github.com/phillipcheng/fork-of-gun-game-2-0.git
 	branch = main
+[submodule "games/fork-of-demon-slayer"]
+	path = games/fork-of-demon-slayer
+	url = https://github.com/phillipcheng/fork-of-demon-slayer.git
+	branch = main
