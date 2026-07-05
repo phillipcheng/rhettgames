@@ -1149,6 +1149,28 @@ function renounceVendetta(){
   toast("Your vendetta against "+(q?q.civ:"them")+" is renounced.");
   renderDipScreen(); saveGame();
 }
+function sharedWarTarget(fid){
+  let target=null,tp=-1;
+  for(const r of G.players){
+    if(r.id===0||r.minor||r.defeated||r.id===fid) continue;
+    if(!isAtWar(0,r.id)) continue;
+    if(isAtWar(fid,r.id)) continue;
+    const pw=powerOf(r.id); if(pw>tp){tp=pw;target=r.id;}
+  }
+  return target;
+}
+function callToArms(fid){
+  const q=G.players[fid];
+  if(!q||q.minor||q.defeated||isAtWar(0,fid)) return;
+  if((q.favor||0)<2){ toast(q.civ+" needs favor 2+ to answer your call \u2014 send gifts first."); return; }
+  const target=sharedWarTarget(fid);
+  if(target==null){ toast("No shared enemy to rally "+q.civ+" against."); return; }
+  q.favor-=1;
+  declareWar(fid,target);
+  toast("\uD83E\uDD1D "+q.civ+" answers your call \u2014 WAR on "+G.players[target].civ+"!");
+  try{sfx("attack");}catch(e){}
+  renderDipScreen(); saveGame();
+}
 function giftMajor(id){
   const p0=G.players[0], q=G.players[id]; if(!q||q.minor||q.defeated) return;
   if(p0.gold<50){ toast("Need 50 gold to send a gift."); return; }
@@ -1499,6 +1521,24 @@ function makePeace(a,b){
 function bordersTouch(a,b){ for(const c of G.cities){ if(c.owner!==a) continue; const cp=xy(c.tile); for(const d of G.cities){ if(d.owner!==b) continue; const dp=xy(d.tile); if(cheby(cp[0],cp[1],dp[0],dp[1])<=7) return true; } } return false; }
 function aiDiplomacy(p,diff){
   if(G.turn<8) return; const myPow=powerOf(p.id);
+  // empires that cherish your friendship join your wars
+  if((p.favor||0)>=2&&!isAtWar(p.id,0)){
+    for(const r of G.players){
+      if(r.id===0||r.id===p.id||r.minor||r.defeated) continue;
+      if(!isAtWar(0,r.id)) continue;
+      if(isAtWar(p.id,r.id)) continue;
+      if((p.peaceUntil[r.id]||0)>G.turn) continue;
+      let jc=0.10+((p.favor||0)-2)*0.06;
+      const rPow=powerOf(r.id)||1;
+      if(myPow<rPow*0.5) jc*=0.4;
+      if(RNG()<jc){
+        declareWar(p.id,r.id);
+        toast("\uD83E\uDD1D "+p.civ+" honors your friendship and joins your war against "+r.civ+"!");
+        try{sfx("attack");}catch(e){}
+        break;
+      }
+    }
+  }
   for(const q of G.players){
     if(q.id===p.id||q.defeated||q.minor) continue;
     if(!isAtWar(p.id,q.id)){
@@ -2408,6 +2448,7 @@ function renderDipScreen(){
            :"<button class='dipbtn war' data-dw='"+q.id+"'>Declare War</button>")
       +"<button class='dipbtn' data-dg='"+q.id+"'>\uD83C\uDF81 Gift 50g</button>"
       +(q.id===G.nemesis?"<button class='dipbtn' data-dvr='1'>Renounce \uD83C\uDFAF</button>":"<button class='dipbtn war' data-dv='"+q.id+"'>\uD83C\uDFAF Vendetta</button>")
+      +((!war&&(q.favor||0)>=2&&sharedWarTarget(q.id)!=null)?"<button class='dipbtn peace' data-ca='"+q.id+"'>\uD83E\uDD1D Call to Arms<br><span style='font-weight:600;font-size:11px'>vs "+G.players[sharedWarTarget(q.id)].civ+" \u00B7 \u22121\uD83C\uDF81</span></button>":"")
       +"</div>"
       +"</div>";
   }
@@ -2431,6 +2472,7 @@ function renderDipScreen(){
   body.querySelectorAll('[data-dg]').forEach(el=>{el.onclick=()=>giftMajor(parseInt(el.getAttribute('data-dg'),10));});
   body.querySelectorAll('[data-dv]').forEach(el=>{el.onclick=()=>{const id=parseInt(el.getAttribute('data-dv'),10); if(confirm("Swear a vendetta against "+G.players[id].civ+"? They will resent you.")) declareVendetta(id);};});
   body.querySelectorAll('[data-dvr]').forEach(el=>{el.onclick=()=>renounceVendetta();});
+  body.querySelectorAll('[data-ca]').forEach(el=>{el.onclick=()=>callToArms(parseInt(el.getAttribute('data-ca'),10));});
   body.querySelectorAll('[data-dw]').forEach(el=>{el.onclick=()=>{const id=parseInt(el.getAttribute('data-dw'),10); if(confirm("Declare war on "+G.players[id].civ+"?")){declareWar(0,id); renderDipScreen();}};});
   body.querySelectorAll('[data-dp]').forEach(el=>{el.onclick=()=>{playerOfferPeace(parseInt(el.getAttribute('data-dp'),10));};});
 }
@@ -2471,7 +2513,7 @@ function renderHelp(){
     "<div class='helpcard'><h3>Pillage & Plunder \uD83D\uDD25</h3><p>March a military unit onto an enemy <span class='k'>farm, mine, pasture, or road</span> while at war and <span class='k'>pillage</span> it: the improvement burns, you loot gold, and your unit <span class='k'>heals +20</span>. War finally starves the enemy economy. Beware \u2014 barbarians burn improvements they cross too.</p></div>"+
     "<div class='helpcard'><h3>Corps & Armies \u2694</h3><p>Two identical units side by side can <span class='k'>merge</span>: normal + normal forms a <span class='k'>Corps (+50% strength)</span>; merge again for an <span class='k'>Army (+100%)</span>. The merged unit keeps the best XP, every perk from both, and any hero name. Quality over quantity.</p></div>"+
     "<div class='helpcard'><h3>Annex or Raze \uD83C\uDFDB\uFE0F</h3><p>When you capture a city, choose its fate: <span class='k'>Annex</span> it into your empire, or <span class='k'>Raze</span> it \u2014 sack a pile of gold instantly, then it burns one population per turn (paying you as it burns) until nothing remains and the land goes free. Change your mind in the city screen before the ash settles.</p></div>"+
-    "<div class='helpcard'><h3>Sworn Enemy \uD83C\uDFAF</h3><p>You are bound to no destiny \u2014 <span class='k'>help any enemy or attack any friend</span>. Send \uD83C\uDF81 <span class='k'>gifts of gold</span> to any empire to warm relations (they grow slower to anger and quicker to accept peace), or swear a \uD83C\uDFAF <span class='k'>Vendetta</span> against anyone you choose: your units strike them <span class='k'>15% harder</span>, and destroying their empire by your own hand claims the <span class='k'>Nemesis Victory</span>. Renounce or redirect your vendetta at any time \u2014 but the marked empire resents you.</p></div>"+
+    "<div class='helpcard'><h3>Sworn Enemy \uD83C\uDFAF</h3><p>You are bound to no destiny \u2014 <span class='k'>help any enemy or attack any friend</span>. Send \uD83C\uDF81 <span class='k'>gifts of gold</span> to any empire to warm relations (they grow slower to anger and quicker to accept peace), or swear a \uD83C\uDFAF <span class='k'>Vendetta</span> against anyone you choose: your units strike them <span class='k'>15% harder</span>, and destroying their empire by your own hand claims the <span class='k'>Nemesis Victory</span>. Renounce or redirect your vendetta at any time \u2014 but the marked empire resents you. Empires that cherish your friendship (favor 2+) may <span class='k'>join your wars</span> unbidden, or <span class='k'>Call them to Arms</span> yourself for one favor \u2014 your friends march on your enemies.</p></div>"+
     "<div class='helpcard'><h3>City-State Quests \uD83D\uDCEF</h3><p>City-states now post <span class='k'>quests</span> \u2014 destroy a camp, raise a wonder, defeat a rival\u2019s soldiers, grow your capital, amass gold. Complete one for a massive <span class='k'>+40 influence</span> jump \u2014 often an instant alliance, no gold spent. Active quests show in the Diplomacy panel.</p></div>"+
     "<div class='helpcard'><h3>Trade Routes \uD83D\uDC2A</h3><p>Research <span class='k'>Currency</span> to build Caravans. Walk one to any other city and open a <span class='k'>20-turn trade route</span>: your own cities pay +3 gold, rivals +5 gold and +2 science, city-states +4 gold and +1 influence every turn, plus a +30 gold completion bonus. But guard them \u2014 enemies and barbarians <span class='k'>plunder</span> caravans for 60 gold, and war severs routes.</p></div>"+
     "<div class='helpcard'><h3>Named Heroes \u2B50</h3><p>A unit that reaches <span class='k'>Veteran Lv4</span> becomes a named legend \u2014 \u201CMarcus the Unbroken\u201D \u2014 with a \u2B50 badge and an <span class='k'>aura</span>: allies on adjacent tiles fight <span class='k'>15% harder</span>. Keep your legends alive and your armies rally around them.</p></div>"+
