@@ -366,6 +366,26 @@
   }
   .studio-title { color: #ffcb3a; font-size: 16px; letter-spacing: 3px; }
   .studio-title .sub { color: #789; font-size: 11px; margin-left: 10px; letter-spacing: 1px; }
+  #studioTabs {
+    display: flex; gap: 4px; padding: 6px 0 0; flex-shrink: 0;
+    overflow-x: auto; align-items: stretch;
+  }
+  .studio-tab {
+    display: flex; align-items: center; gap: 6px; padding: 5px 10px;
+    background: #161624; border: 1px solid #2a2a40; border-bottom: 0;
+    border-radius: 5px 5px 0 0; font-size: 11px; letter-spacing: 1px;
+    color: #889; cursor: pointer; white-space: nowrap; max-width: 220px;
+  }
+  .studio-tab:hover { color: #fff; background: #1f1f30; }
+  .studio-tab.active { color: #ffcb3a; background: #1a1a28; border-color: #ffcb3a; }
+  .studio-tab .tab-title { overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+  .studio-tab .tab-thinking { color: #4ad66d; font-size: 9px; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+  .studio-tab .tab-close {
+    background: none; border: 0; color: #557; cursor: pointer;
+    font-family: inherit; padding: 0 2px; font-size: 13px; line-height: 1;
+  }
+  .studio-tab .tab-close:hover { color: #ff3a5c; }
   .studio-body {
     display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px;
     flex: 1; width: 100%; padding: 10px 0; overflow: hidden;
@@ -393,13 +413,21 @@
     display: flex; flex-direction: column; gap: 10px;
     font-size: 13px; line-height: 1.5;
   }
-  .msg { display: flex; flex-direction: column; gap: 3px; }
-  .msg .who { font-size: 10px; letter-spacing: 2px; color: #667; }
+  .msg { display: flex; flex-direction: column; gap: 3px; position: relative; }
+  .msg .who { font-size: 10px; letter-spacing: 2px; color: #667; display: flex; align-items: center; gap: 8px; }
   .msg.user   .who { color: #3a9dff; }
   .msg.assistant .who { color: #ffcb3a; }
   .msg.system .who { color: #ff3a5c; }
   .msg .body { color: #ddd; white-space: pre-wrap; word-break: break-word; }
   .msg.system .body { color: #ff8f9d; font-style: italic; }
+  .msg .copy-btn {
+    background: none; border: 1px solid #2a2a40; color: #667; cursor: pointer;
+    font-family: inherit; font-size: 10px; letter-spacing: 1px; padding: 1px 6px;
+    border-radius: 3px; opacity: 0; transition: opacity 0.15s;
+  }
+  .msg:hover .copy-btn { opacity: 1; }
+  .msg .copy-btn:hover { color: #ffcb3a; border-color: #ffcb3a; }
+  .msg .copy-btn.copied { color: #4ad66d; border-color: #4ad66d; }
   .msg-thinking {
     color: #667; font-size: 12px; font-style: italic;
     letter-spacing: 1px; padding: 6px 0;
@@ -552,6 +580,7 @@
           <label style="font-size:13px;color:#bcd;"><input type="radio" name="startPoint" value="blank" checked /> Blank — minimal canvas</label>
           <label style="font-size:13px;color:#bcd;"><input type="radio" name="startPoint" value="base" /> From base game: <select id="newGameBase" style="background:#1a1a28;color:#fff;border:1px solid #2a2a40;padding:2px 6px;"></select></label>
           <label style="font-size:13px;color:#bcd;"><input type="radio" name="startPoint" value="upload" /> Upload an HTML file: <input type="file" id="newGameUpload" accept=".html,text/html" style="display:inline-block;width:auto;min-width:0;font-size:11px;" /></label>
+          <label style="font-size:13px;color:#bcd;"><input type="radio" name="startPoint" value="github" /> From <code>phillipcheng/rhettgames</code>: <select id="newGameGithub" style="background:#1a1a28;color:#fff;border:1px solid #2a2a40;padding:2px 6px;"><option value="">(loading…)</option></select></label>
         </div>
 
         <div id="multiplayerSection" style="border-top:1px dashed #2a2a40;padding-top:12px;margin-top:10px;display:none;">
@@ -657,8 +686,8 @@
         <button class="ghost" id="playBackBtn">← BACK TO LOBBY</button>
       </div>
     </div>
-    <div style="flex:1; display:flex; padding:10px 0; min-height: 0;">
-      <div id="playFrameWrap">
+    <div style="flex:1; display:flex; width:100%; padding:10px 0; min-height: 0;">
+      <div id="playFrameWrap" style="flex:1;">
         <iframe id="playFrame" sandbox="allow-scripts allow-pointer-lock allow-same-origin"></iframe>
       </div>
     </div>
@@ -677,6 +706,7 @@
         <button class="ghost" id="studioBackBtn">← BACK</button>
       </div>
     </div>
+    <div id="studioTabs"></div>
     <div class="studio-body">
       <div id="studioFrameWrap">
         <iframe id="studioFrame" sandbox="allow-scripts allow-pointer-lock allow-same-origin"></iframe>

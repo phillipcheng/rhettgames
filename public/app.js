@@ -68,6 +68,7 @@ const adminGamesListEl = document.getElementById('adminGamesList');
 
 let promoteReleaseId = null;
 let promoteProject = null;
+let lastCreateForce = false;
 
 function openAddGameModal({ promoteFromRelease, promoteFromProject } = {}){
   promoteReleaseId = promoteFromRelease || null;
@@ -83,6 +84,11 @@ function openAddGameModal({ promoteFromRelease, promoteFromProject } = {}){
   populateBasesDropdown();
   document.querySelectorAll('input[name="startPoint"]').forEach(r => { r.checked = (r.value === 'blank'); });
   if (newGameUpload) newGameUpload.value = '';
+  if (newGameGithubSel) {
+    githubFilesLoaded = false;
+    pendingGhFetch = null;
+    ensureGithubFilesLoaded();
+  }
 
   const isAdmin = !!(session && session.role === 'admin');
   multiplayerSection.style.display = isAdmin ? 'block' : 'none';
@@ -113,6 +119,7 @@ function closeAddGameModal(){
   addGameModal.style.display = 'none';
   promoteReleaseId = null;
   promoteProject   = null;
+  lastCreateForce  = false;
   document.querySelectorAll('input[name="startPoint"]').forEach(r => r.disabled = false);
   addGameSubmit.disabled = false;
 }
@@ -138,6 +145,20 @@ addGameSubmit.addEventListener('click', async () => {
     if (!/<!doctype html|<html[\s>]/i.test(seedHtml.slice(0, 1000))) {
       addGameError.textContent = 'does not look like HTML'; return;
     }
+  } else if (startPoint === 'github') {
+    const ghPath = newGameGithubSel.value;
+    if (!ghPath) { addGameError.textContent = 'pick a file from the dropdown'; return; }
+    addGameSubmit.disabled = true;
+    createGameStatus.textContent = 'fetching from GitHub…';
+    try { seedHtml = await fetchGithubFile(ghPath); }
+    catch (err) {
+      addGameError.textContent = 'github fetch failed: ' + (err.message || err);
+      addGameSubmit.disabled = false; createGameStatus.textContent = ''; return;
+    }
+    if (!/<!doctype html|<html[\s>]/i.test(seedHtml.slice(0, 1000))) {
+      addGameError.textContent = 'fetched file does not look like HTML';
+      addGameSubmit.disabled = false; createGameStatus.textContent = ''; return;
+    }
   }
 
   addGameError.textContent = '';
@@ -160,9 +181,11 @@ addGameSubmit.addEventListener('click', async () => {
       send({ t: 'admin-add-game', id, name, description, minPlayers, maxPlayers, devGameId: promoteProject.id });
     } else {
       const payload = { t: 'admin-add-game', id, name, description, minPlayers, maxPlayers };
-      if (startPoint === 'upload' && seedHtml) payload.seedHtml = seedHtml;
+      if ((startPoint === 'upload' || startPoint === 'github') && seedHtml) payload.seedHtml = seedHtml;
       else if (startPoint === 'base' && newGameBaseSel.value) payload.baseGameId = newGameBaseSel.value;
+      if (lastCreateForce) payload.force = true;
       send(payload);
+      lastCreateForce = false;
     }
     // The admin-game-status handler will close/update.
     return;
@@ -175,7 +198,7 @@ addGameSubmit.addEventListener('click', async () => {
   } else if (startPoint === 'base') {
     const base = newGameBaseSel.value;
     send({ t: 'dev-create', baseGameId: base || null, title: name });
-  } else if (startPoint === 'upload') {
+  } else if (startPoint === 'upload' || startPoint === 'github') {
     send({ t: 'dev-upload', title: name, html: seedHtml });
   }
   closeAddGameModal();
@@ -184,14 +207,23 @@ addGameSubmit.addEventListener('click', async () => {
 });
 
 function renderAdminGamesList(){
-  // Cheap: just show the known availableGames + a note
   if (!availableGames || availableGames.length === 0) { adminGamesListEl.innerHTML = '<div class="empty-list">(none registered)</div>'; return; }
-  adminGamesListEl.innerHTML = availableGames.map(g =>
-    `<div style="padding:6px 0;border-bottom:1px solid #2a2a40;">
-       <span style="color:#fff;font-weight:bold;">${escapeHtml(g.name)}</span>
-       <span style="color:#789;">· <code>${escapeHtml(g.id)}</code> · ${g.minPlayers}-${g.maxPlayers} players</span>
-     </div>`
-  ).join('');
+  adminGamesListEl.innerHTML = '';
+  for (const g of availableGames) {
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:6px 0;border-bottom:1px solid #2a2a40;display:flex;justify-content:space-between;align-items:center;gap:8px;';
+    row.innerHTML = `
+      <div>
+        <span style="color:#fff;font-weight:bold;">${escapeHtml(g.name)}</span>
+        <span style="color:#789;">· <code>${escapeHtml(g.id)}</code> · ${g.minPlayers}-${g.maxPlayers} players</span>
+      </div>
+      <button class="ghost" style="padding:3px 10px;font-size:11px;color:#ff6a6a;border-color:#552020;" data-delgame="${escapeHtml(g.id)}">DELETE</button>`;
+    row.querySelector('[data-delgame]').addEventListener('click', () => {
+      if (!confirm('Remove "' + g.name + '" (id: ' + g.id + ')?\nThe submodule will be removed from the platform repo and the server will restart. The GitHub repo for the game itself is preserved and can be re-added later.')) return;
+      send({ t: 'admin-delete-game', id: g.id });
+    });
+    adminGamesListEl.appendChild(row);
+  }
 }
 
 // System dev
@@ -220,6 +252,7 @@ const studioProjectSub = document.getElementById('studioProjectSub');
 const studioFrame = document.getElementById('studioFrame');
 const reloadFrameBtn = document.getElementById('reloadFrameBtn');
 const studioBackBtn = document.getElementById('studioBackBtn');
+const studioTabsEl = document.getElementById('studioTabs');
 const chatMessagesEl = document.getElementById('chatMessages');
 const chatInput = document.getElementById('chatInput');
 const chatSend = document.getElementById('chatSend');
@@ -265,7 +298,12 @@ let gameClient = null;           // { onState, onRoomUpdate, destroy }
 // Dev studio state
 let devSelectedBaseGame = 'gungame';
 let devClaudeAvailable = true;
-let currentStudioProject = null;   // { id, title, baseGameId, html, updatedAt }
+// Multi-tab studio state. Each tab tracks its own project, chat messages,
+// thinking flag, in-flight streaming text, and chat input draft.
+const studioTabs = new Map(); // id -> { project, messages, thinking, streamingText, chatDraft }
+let activeTabId = null;
+// Aliases derived from the active tab; kept so existing references "just work".
+let currentStudioProject = null;
 let studioThinking = false;
 
 // ============ View switching ============
@@ -581,14 +619,17 @@ function publishedRow(p, mine){
   const promoteBtn = (isAdmin && !alreadyMultiplayer)
     ? `<button class="ghost" style="padding:4px 10px;font-size:11px;color:#c8a8ff;" data-promote="${p.id}">PROMOTE</button>`
     : '';
+  const deleteBtn = (isAdmin && p.dev_game_id)
+    ? `<button class="ghost" style="padding:4px 10px;font-size:11px;color:#ff6a6a;border-color:#552020;" data-delete-pub="${p.dev_game_id}">DELETE</button>`
+    : '';
   const modeBadge = alreadyMultiplayer
     ? '<span style="background:#a078ff;color:#fff;padding:1px 6px;border-radius:3px;font-size:10px;margin-left:4px;">🎮 MULTIPLAYER</span>'
     : '<span style="background:#2a3a55;color:#bcd;padding:1px 6px;border-radius:3px;font-size:10px;margin-left:4px;">SOLO</span>';
   const actions = canEdit
-    ? `${promoteBtn}
+    ? `${deleteBtn}${promoteBtn}
        <button class="ghost" style="padding:4px 10px;font-size:11px;" data-play="${p.id}">PLAY</button>
        <button class="btn" style="padding:4px 12px;font-size:11px;" data-edit="${p.dev_game_id}">EDIT</button>`
-    : `${promoteBtn}
+    : `${deleteBtn}${promoteBtn}
        <button class="ghost" style="padding:4px 10px;font-size:11px;" data-play="${p.id}">PLAY</button>
        <button class="btn" style="padding:4px 12px;font-size:11px;" data-fork="${p.id}">FORK</button>`;
   const ownerBadge = mine
@@ -620,6 +661,12 @@ function publishedRow(p, mine){
     e.stopPropagation();
     openAddGameModal({ promoteFromRelease: p });
   });
+  const delPubBtn = row.querySelector('[data-delete-pub]');
+  if (delPubBtn) delPubBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    if (!confirm('Delete published "' + p.title + '" (all versions)?\nIt will disappear from the lobby for everyone. The dev project itself is NOT deleted.')) return;
+    send({ t: 'admin-delete-published', devGameId: p.dev_game_id });
+  });
   return row;
 }
 
@@ -630,6 +677,7 @@ const createGameBtn    = document.getElementById('createGameBtn');
 const createGameStatus = document.getElementById('createGameStatus');
 const newGameBaseSel   = document.getElementById('newGameBase');
 const newGameUpload    = document.getElementById('newGameUpload');
+const newGameGithubSel = document.getElementById('newGameGithub');
 const newGameMultiChk  = document.getElementById('newGameMultiplayer');
 const multiplayerSection = document.getElementById('multiplayerSection');
 const multiplayerFields  = document.getElementById('multiplayerFields');
@@ -643,8 +691,34 @@ function populateBasesDropdown(){
     ? availableGames.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`).join('')
     : '<option value="">(no base games)</option>');
 }
+
+let githubFilesLoaded = false;
+let pendingGhFetch = null; // { resolve, reject, path }
+function ensureGithubFilesLoaded(){
+  if (githubFilesLoaded) return;
+  githubFilesLoaded = true;
+  newGameGithubSel.innerHTML = '<option value="">(loading…)</option>';
+  send({ t: 'gh-list-html' });
+}
+function fetchGithubFile(filePath){
+  return new Promise((resolve, reject) => {
+    pendingGhFetch = { resolve, reject, path: filePath };
+    send({ t: 'gh-fetch-html', path: filePath });
+    setTimeout(() => {
+      if (pendingGhFetch && pendingGhFetch.path === filePath) {
+        const p = pendingGhFetch; pendingGhFetch = null;
+        p.reject(new Error('timeout'));
+      }
+    }, 15000);
+  });
+}
 if (newGameMultiChk) newGameMultiChk.addEventListener('change', () => {
   multiplayerFields.style.display = newGameMultiChk.checked ? 'block' : 'none';
+});
+document.querySelectorAll('input[name="startPoint"]').forEach(r => {
+  r.addEventListener('change', () => {
+    if (r.checked && r.value === 'github') ensureGithubFilesLoaded();
+  });
 });
 document.getElementById('newGameName').addEventListener('input', (e) => {
   if (newGameMultiChk && newGameMultiChk.checked) {
@@ -712,8 +786,36 @@ function focusIframe(iframe){
     iframe.contentWindow && iframe.contentWindow.focus();
   } catch {}
 }
-document.getElementById('studioFrame').addEventListener('load', function(){ focusIframe(this); });
+document.getElementById('studioFrame').addEventListener('load', function(){
+  focusIframe(this);
+  // Wire an ESC handler inside the studio iframe so pressing ESC while playing
+  // stops the test and drops the user back into chat/edit mode.
+  try {
+    const doc = this.contentDocument;
+    if (doc) {
+      doc.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          stopStudioTest();
+        }
+      });
+    }
+  } catch {}
+});
 document.getElementById('playFrame').addEventListener('load', function(){ focusIframe(this); });
+
+function stopStudioTest(){
+  // Replace the iframe with a "stopped" placeholder so the game's loops, audio,
+  // and timers all halt. The current tab's project HTML is preserved so the
+  // user can hit RELOAD to start the test again.
+  const stoppedHtml = '<!doctype html><html><body style="background:#0a0a14;color:#ffcb3a;font-family:monospace;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;letter-spacing:2px;">'
+    + '<div style="font-size:14px;">TEST STOPPED</div>'
+    + '<div style="color:#789;font-size:11px;margin-top:8px;letter-spacing:1px;">click ↻ RELOAD to restart · or chat with Claude to edit</div>'
+    + '</body></html>';
+  studioFrame.srcdoc = stoppedHtml;
+  // Focus the chat input so the user can immediately start typing.
+  setTimeout(() => { try { chatInput.focus(); } catch {} }, 0);
+}
 // Click on the frame wrapper returns focus to the iframe (useful after the
 // user has been typing in chat and comes back to play).
 document.getElementById('studioFrameWrap').addEventListener('mousedown', () => focusIframe(document.getElementById('studioFrame')));
@@ -721,8 +823,11 @@ document.getElementById('playFrameWrap').addEventListener('mousedown', () => foc
 
 // Studio
 studioBackBtn.addEventListener('click', () => {
-  currentStudioProject = null;
-  studioFrame.srcdoc = '';
+  // Save the active tab's draft, but keep all tabs open so the user can
+  // return to them. The iframe is paused while not visible.
+  if (activeTabId !== null && studioTabs.has(activeTabId)) {
+    studioTabs.get(activeTabId).chatDraft = chatInput.value;
+  }
   send({ t: 'dev-list' });
   showView('dev-list');
 });
@@ -731,8 +836,12 @@ reloadFrameBtn.addEventListener('click', () => {
 });
 releaseBtn.addEventListener('click', () => {
   if (!currentStudioProject) return;
-  if (!confirm('Release the current draft as a new version? Everyone in the lobby will see it.')) return;
-  send({ t: 'dev-release', id: currentStudioProject.id });
+  const defaultTitle = currentStudioProject.title || '';
+  const title = prompt('Publish as (title shown in ONLINE GAMES):', defaultTitle);
+  if (title === null) return; // cancelled
+  const trimmed = (title || '').trim();
+  if (!trimmed) { alert('Title cannot be empty.'); return; }
+  send({ t: 'dev-release', id: currentStudioProject.id, title: trimmed });
 });
 
 // Published / Play release
@@ -769,90 +878,230 @@ chatInput.addEventListener('keydown', (e) => {
 chatSend.addEventListener('click', sendChat);
 
 function sendChat(){
-  if (!currentStudioProject || studioThinking) return;
+  const tab = activeTabId !== null ? studioTabs.get(activeTabId) : null;
+  if (!tab || tab.thinking) return;
   const text = (chatInput.value || '').trim();
   if (!text) return;
   chatInput.value = '';
-  // Optimistic: render user bubble immediately
+  tab.chatDraft = '';
+  // Optimistic: append to tab state and render
+  tab.messages.push({ role: 'user', content: text });
   appendChatMessage({ role: 'user', content: text, created_at: Date.now() });
-  send({ t: 'dev-chat', id: currentStudioProject.id, message: text });
-  setThinking(true);
+  send({ t: 'dev-chat', id: tab.project.id, message: text });
+  setTabThinking(tab.project.id, true);
 }
 
-let streamingBubbleEl = null;
-
-function setThinking(on){
-  studioThinking = on;
-  chatSend.disabled = on;
-  chatSend.textContent = on ? '…' : 'SEND';
-  const existing = chatMessagesEl.querySelector('.msg-thinking');
-  if (on && !existing) {
-    const el = document.createElement('div');
-    el.className = 'msg-thinking';
-    el.textContent = 'Claude is working…';
-    chatMessagesEl.appendChild(el);
-    chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+function setTabThinking(id, on){
+  const tab = studioTabs.get(id);
+  if (!tab) return;
+  tab.thinking = on;
+  if (id === activeTabId) {
+    studioThinking = on;
+    chatSend.disabled = on;
+    chatSend.textContent = on ? '…' : 'SEND';
+    const existing = chatMessagesEl.querySelector('.msg-thinking');
+    if (on && !existing && tab.streamingText === null) {
+      const el = document.createElement('div');
+      el.className = 'msg-thinking';
+      el.textContent = 'Claude is working…';
+      chatMessagesEl.appendChild(el);
+      chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+    }
+    if (!on && existing) existing.remove();
   }
-  if (!on && existing) existing.remove();
+  renderTabBar();
 }
+
+let streamingBubbleEl = null; // DOM ref for active tab's streaming bubble
 
 function ensureStreamingBubble(){
   if (streamingBubbleEl) return streamingBubbleEl;
-  // Convert the "Claude is working…" placeholder into a real bubble as soon
-  // as the first chunk arrives.
   const pending = chatMessagesEl.querySelector('.msg-thinking');
   if (pending) pending.remove();
   const el = document.createElement('div');
   el.className = 'msg assistant';
-  el.innerHTML = `<div class="who">CLAUDE</div><div class="body"></div>`;
+  el.innerHTML = `<div class="who">CLAUDE <button class="copy-btn" title="copy message">COPY</button></div><div class="body"></div>`;
+  attachCopyHandler(el);
   chatMessagesEl.appendChild(el);
   streamingBubbleEl = el;
   return el;
 }
 
-function appendStreamChunk(delta){
-  const el = ensureStreamingBubble();
-  const body = el.querySelector('.body');
-  body.textContent += delta;
-  chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+function attachCopyHandler(msgEl){
+  const btn = msgEl.querySelector('.copy-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const text = msgEl.querySelector('.body').innerText;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Fallback for non-secure contexts
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch {}
+      document.body.removeChild(ta);
+    }
+    btn.classList.add('copied');
+    btn.textContent = 'COPIED';
+    setTimeout(() => { btn.classList.remove('copied'); btn.textContent = 'COPY'; }, 1200);
+  });
 }
 
-function finalizeStream(finalText){
-  if (streamingBubbleEl) {
-    const body = streamingBubbleEl.querySelector('.body');
-    if (typeof finalText === 'string' && finalText.length > 0) {
-      body.textContent = finalText;
-    }
+function appendStreamChunk(targetId, delta){
+  const tab = studioTabs.get(targetId);
+  if (!tab) return;
+  if (tab.streamingText === null) tab.streamingText = '';
+  tab.streamingText += delta;
+  if (targetId === activeTabId) {
+    const el = ensureStreamingBubble();
+    const body = el.querySelector('.body');
+    body.textContent = tab.streamingText;
+    chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
   }
-  streamingBubbleEl = null;
+}
+
+function finalizeStream(targetId, finalText){
+  const tab = studioTabs.get(targetId);
+  if (!tab) return;
+  const text = (typeof finalText === 'string' && finalText.length > 0)
+    ? finalText
+    : (tab.streamingText || '');
+  // Persist into tab messages so a later switch-back will replay it.
+  tab.messages.push({ role: 'assistant', content: text });
+  tab.streamingText = null;
+  if (targetId === activeTabId && streamingBubbleEl) {
+    const body = streamingBubbleEl.querySelector('.body');
+    body.textContent = text;
+    streamingBubbleEl = null;
+  }
 }
 
 function appendChatMessage(m){
   const el = document.createElement('div');
   el.className = 'msg ' + (m.role || 'assistant');
   const who = m.role === 'user' ? 'YOU' : (m.role === 'assistant' ? 'CLAUDE' : 'SYSTEM');
-  el.innerHTML = `<div class="who">${who}</div><div class="body"></div>`;
+  el.innerHTML = `<div class="who">${who} <button class="copy-btn" title="copy message">COPY</button></div><div class="body"></div>`;
   el.querySelector('.body').textContent = m.content;
+  attachCopyHandler(el);
   chatMessagesEl.appendChild(el);
   chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
 }
 
 function loadStudioProject(project, messages){
-  currentStudioProject = project;
-  studioProjectTitle.textContent = project.title;
-  const v = project.latestVersion ? ' · released v' + project.latestVersion : ' · unreleased';
-  studioProjectSub.textContent = 'based on ' + (project.baseGameId || 'scratch') + v;
-  chatMessagesEl.innerHTML = '';
-  for (const m of (messages || [])) appendChatMessage(m);
-  if (!messages || messages.length === 0) {
-    appendChatMessage({
-      role: 'system',
-      content: 'Project loaded. Tell Claude what you want to change — e.g. "make player speed 2x" or "add a coin that gives +50 health".'
-    });
+  // Reuse the existing tab if this project is already open.
+  let tab = studioTabs.get(project.id);
+  if (tab) {
+    // Refresh project metadata + replace messages from server's authoritative copy.
+    tab.project = project;
+    const initial = (messages || []).slice();
+    if (initial.length === 0) {
+      initial.push({
+        role: 'system',
+        content: 'Project loaded. Tell Claude what you want to change — e.g. "make player speed 2x" or "add a coin that gives +50 health".'
+      });
+    }
+    tab.messages = initial;
+  } else {
+    const initial = (messages || []).slice();
+    if (initial.length === 0) {
+      initial.push({
+        role: 'system',
+        content: 'Project loaded. Tell Claude what you want to change — e.g. "make player speed 2x" or "add a coin that gives +50 health".'
+      });
+    }
+    tab = { project, messages: initial, thinking: false, streamingText: null, chatDraft: '' };
+    studioTabs.set(project.id, tab);
   }
-  studioFrame.srcdoc = project.html;
+  switchToTab(project.id);
   showView('studio');
 }
+
+function switchToTab(id){
+  // Save outgoing tab's chat input draft.
+  if (activeTabId !== null && studioTabs.has(activeTabId)) {
+    studioTabs.get(activeTabId).chatDraft = chatInput.value;
+  }
+  const tab = studioTabs.get(id);
+  if (!tab) {
+    activeTabId = null;
+    currentStudioProject = null;
+    studioThinking = false;
+    studioFrame.srcdoc = '';
+    chatMessagesEl.innerHTML = '';
+    chatInput.value = '';
+    renderTabBar();
+    return;
+  }
+  activeTabId = id;
+  currentStudioProject = tab.project;
+  studioThinking = tab.thinking;
+  studioProjectTitle.textContent = tab.project.title;
+  const v = tab.project.latestVersion ? ' · released v' + tab.project.latestVersion : ' · unreleased';
+  studioProjectSub.textContent = 'based on ' + (tab.project.baseGameId || 'scratch') + v;
+  // Re-render chat from tab state.
+  chatMessagesEl.innerHTML = '';
+  streamingBubbleEl = null;
+  for (const m of tab.messages) appendChatMessage(m);
+  if (tab.thinking) {
+    if (tab.streamingText === null) {
+      const el = document.createElement('div');
+      el.className = 'msg-thinking';
+      el.textContent = 'Claude is working…';
+      chatMessagesEl.appendChild(el);
+    } else {
+      // Restore the partial streaming bubble.
+      const el = ensureStreamingBubble();
+      el.querySelector('.body').textContent = tab.streamingText;
+    }
+  }
+  chatInput.value = tab.chatDraft || '';
+  chatSend.disabled = tab.thinking;
+  chatSend.textContent = tab.thinking ? '…' : 'SEND';
+  studioFrame.srcdoc = tab.project.html;
+  chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+  renderTabBar();
+}
+
+function closeTab(id){
+  studioTabs.delete(id);
+  if (activeTabId === id) {
+    const next = studioTabs.keys().next();
+    if (next.done) {
+      activeTabId = null;
+      currentStudioProject = null;
+      studioThinking = false;
+      send({ t: 'dev-list' });
+      showView('dev-list');
+    } else {
+      switchToTab(next.value);
+    }
+  } else {
+    renderTabBar();
+  }
+}
+
+function renderTabBar(){
+  studioTabsEl.innerHTML = '';
+  for (const [id, tab] of studioTabs) {
+    const el = document.createElement('div');
+    el.className = 'studio-tab' + (id === activeTabId ? ' active' : '');
+    el.innerHTML = `<span class="tab-title"></span>${tab.thinking ? '<span class="tab-thinking">●</span>' : ''}<button class="tab-close" title="close tab">×</button>`;
+    el.querySelector('.tab-title').textContent = tab.project.title;
+    el.addEventListener('click', (e) => {
+      if (e.target.classList.contains('tab-close')) return;
+      switchToTab(id);
+    });
+    el.querySelector('.tab-close').addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeTab(id);
+    });
+    studioTabsEl.appendChild(el);
+  }
+}
+
+// Resolve a tab by project id even when not active. Returns null if not open.
+function getTab(id){ return studioTabs.get(id) || null; }
 
 async function fetchLeaderboard(){
   try {
@@ -1001,6 +1250,11 @@ function handleServerMessage(msg){
     case 'logged-out':
       session = null;
       currentRoom = null;
+      studioTabs.clear();
+      activeTabId = null;
+      currentStudioProject = null;
+      studioThinking = false;
+      streamingBubbleEl = null;
       localStorage.removeItem(SAVED_TOKEN_KEY);
       unmountGame();
       showView('login');
@@ -1023,17 +1277,19 @@ function handleServerMessage(msg){
       loadPlayRelease(msg.release);
       break;
 
-    case 'dev-released':
-      if (currentStudioProject && currentStudioProject.id === msg.id) {
-        currentStudioProject.latestVersion = msg.release.version;
-        studioProjectSub.textContent = 'based on ' + (currentStudioProject.baseGameId || 'scratch')
-                                       + ' · released v' + msg.release.version;
-        appendChatMessage({
-          role: 'system',
-          content: 'Released as v' + msg.release.version + '. Now visible in the lobby for everyone to play.'
-        });
+    case 'dev-released': {
+      const tab = studioTabs.get(msg.id);
+      if (tab) {
+        tab.project.latestVersion = msg.release.version;
+        const sysMsg = { role: 'system', content: 'Released as v' + msg.release.version + '. Now visible in the lobby for everyone to play.' };
+        tab.messages.push(sysMsg);
+        if (msg.id === activeTabId) {
+          studioProjectSub.textContent = 'based on ' + (tab.project.baseGameId || 'scratch') + ' · released v' + msg.release.version;
+          appendChatMessage(sysMsg);
+        }
       }
       break;
+    }
 
     case 'room-joined':
       mySlot = msg.slot;
@@ -1092,23 +1348,23 @@ function handleServerMessage(msg){
       loadStudioProject(msg.project, msg.messages || []);
       break;
 
-    case 'dev-renamed':
-      if (currentStudioProject && currentStudioProject.id === msg.id) {
-        currentStudioProject.title = msg.title;
-        studioProjectTitle.textContent = msg.title;
+    case 'dev-renamed': {
+      const tab = studioTabs.get(msg.id);
+      if (tab) {
+        tab.project.title = msg.title;
+        if (msg.id === activeTabId) studioProjectTitle.textContent = msg.title;
+        renderTabBar();
       }
       break;
+    }
 
     case 'dev-deleted':
-      if (currentStudioProject && currentStudioProject.id === msg.id) {
-        currentStudioProject = null;
-        showView('dev-list');
-      }
+      if (studioTabs.has(msg.id)) closeTab(msg.id);
       send({ t: 'dev-list' });
       break;
 
     case 'dev-thinking':
-      setThinking(true);
+      if (msg.id != null) setTabThinking(msg.id, true);
       break;
 
     case 'dev-chat-user-echo':
@@ -1116,24 +1372,40 @@ function handleServerMessage(msg){
       break;
 
     case 'dev-chat-chunk':
-      setThinking(false); // hide the "working…" placeholder on first chunk
-      appendStreamChunk(msg.delta || '');
-      break;
-
-    case 'dev-chat-reply':
-      setThinking(false);
-      finalizeStream(msg.assistantMessage && msg.assistantMessage.content);
-      if (msg.htmlUpdated && msg.html && currentStudioProject && currentStudioProject.id === msg.id) {
-        currentStudioProject.html = msg.html;
-        studioFrame.srcdoc = msg.html;
+      if (msg.id != null) {
+        // First chunk → drop the "working…" placeholder for this tab if it's active.
+        if (msg.id === activeTabId) {
+          const pending = chatMessagesEl.querySelector('.msg-thinking');
+          if (pending) pending.remove();
+        }
+        appendStreamChunk(msg.id, msg.delta || '');
       }
       break;
 
-    case 'dev-error':
-      setThinking(false);
-      finalizeStream(null);
-      appendChatMessage({ role: 'system', content: 'Error: ' + (msg.error || 'unknown') });
+    case 'dev-chat-reply': {
+      if (msg.id == null) break;
+      finalizeStream(msg.id, msg.assistantMessage && msg.assistantMessage.content);
+      setTabThinking(msg.id, false);
+      const tab = studioTabs.get(msg.id);
+      if (tab && msg.htmlUpdated && msg.html) {
+        tab.project.html = msg.html;
+        if (msg.id === activeTabId) studioFrame.srcdoc = msg.html;
+      }
       break;
+    }
+
+    case 'dev-error': {
+      const targetId = (msg.id != null) ? msg.id : activeTabId;
+      if (targetId != null) {
+        finalizeStream(targetId, null);
+        setTabThinking(targetId, false);
+        const tab = studioTabs.get(targetId);
+        const errMsg = { role: 'system', content: 'Error: ' + (msg.error || 'unknown') };
+        if (tab) tab.messages.push(errMsg);
+        if (targetId === activeTabId) appendChatMessage(errMsg);
+      }
+      break;
+    }
 
     case 'admin-users-list':
       renderUsersTable(msg.users || []);
@@ -1149,6 +1421,19 @@ function handleServerMessage(msg){
       if (msg.error) {
         addGameError.textContent = msg.error;
         addGameSubmit.disabled = false;
+        // If the create flow can be retried with force=true (override an
+        // existing local submodule), offer an OVERRIDE button.
+        if (msg.requiresForce && addGameModal.style.display === 'flex') {
+          addGameError.innerHTML = escapeHtml(msg.error)
+            + ' <button class="ghost" id="forceOverrideBtn" style="margin-left:8px;padding:2px 10px;font-size:11px;color:#ffcb3a;border-color:#ffcb3a;">OVERRIDE</button>';
+          const btn = document.getElementById('forceOverrideBtn');
+          if (btn) btn.addEventListener('click', () => {
+            if (!confirm('Override the existing games/' + (newGameId.value||'').trim() + '/?\nThis REPLACES its meta.js / server.js / client.js / seed.html / README.md with a fresh scaffold built from the picked seed. Any custom game logic in those files will be lost. Local-only — does NOT push to GitHub.')) return;
+            lastCreateForce = true;
+            addGameSubmit.click();
+          });
+        }
+        if (!msg.requiresForce && addGameModal.style.display !== 'flex') alert('Game admin error: ' + msg.error);
       }
       if (msg.done) {
         addGameSubmit.disabled = false;
@@ -1156,6 +1441,27 @@ function handleServerMessage(msg){
           closeAddGameModal();
           setTimeout(() => { createGameStatus.textContent = ''; }, 8000);
         }
+      }
+      break;
+
+    case 'gh-html-list':
+      if (msg.error) {
+        newGameGithubSel.innerHTML = `<option value="">(error: ${escapeHtml(msg.error)})</option>`;
+        githubFilesLoaded = false;
+      } else {
+        const items = msg.items || [];
+        newGameGithubSel.innerHTML = items.length
+          ? '<option value="">(pick a file)</option>' + items.map(it =>
+              `<option value="${escapeHtml(it.path)}">${escapeHtml(it.path)} (${(it.size/1024).toFixed(1)} KB)</option>`).join('')
+          : '<option value="">(no .html files found)</option>';
+      }
+      break;
+
+    case 'gh-html-content':
+      if (pendingGhFetch && pendingGhFetch.path === msg.path) {
+        const p = pendingGhFetch; pendingGhFetch = null;
+        if (msg.error) p.reject(new Error(msg.error));
+        else p.resolve(msg.html || '');
       }
       break;
 

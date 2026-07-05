@@ -46,8 +46,21 @@ function sendJson(res, code, obj){
 }
 
 function handleHttp(req, res){
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = decodeURI(url.pathname);
+  let url;
+  try {
+    url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('bad request');
+    return;
+  }
+  let pathname;
+  try { pathname = decodeURI(url.pathname); }
+  catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('bad request');
+    return;
+  }
 
   if (pathname === '/api/games') {
     return sendJson(res, 200, { games: listGameMeta() });
@@ -435,8 +448,8 @@ async function handleMessage(ws, c, msg){
       minPlayers: msg.minPlayers,
       maxPlayers: msg.maxPlayers,
       seedHtml
-    }, { actorId: me.userId });
-    if (!res.ok) return sendTo(ws, { t: 'admin-game-status', text: 'failed', error: res.error, done: true });
+    }, { actorId: me.userId, force: !!msg.force });
+    if (!res.ok) return sendTo(ws, { t: 'admin-game-status', text: 'failed', error: res.error, requiresForce: res.requiresForce, done: true });
     sendTo(ws, { t: 'admin-game-status',
       text: 'created ' + res.repoUrl + ' · restart queued',
       game: res, done: true
@@ -457,6 +470,32 @@ async function handleMessage(ws, c, msg){
       text: 'promoted to ' + res.repoUrl + ' · restart queued',
       game: res, done: true
     });
+    return;
+  }
+  if (t === 'admin-delete-published') {
+    if (!isAdmin()) return sendTo(ws, { t: 'error', error: 'admin only' });
+    const devGameId = msg.devGameId | 0;
+    if (!devGameId) return sendTo(ws, { t: 'error', error: 'devGameId required' });
+    const removed = db.deletePublishedByDevGame(devGameId);
+    db.logAdminAction({
+      actorId: me.userId, kind: 'delete-published',
+      target: String(devGameId), details: 'rows=' + removed, ok: true
+    });
+    broadcastLobby();
+    sendTo(ws, { t: 'admin-deleted-published', devGameId, removed });
+    return;
+  }
+  if (t === 'admin-delete-game') {
+    if (!isAdmin()) return sendTo(ws, { t: 'error', error: 'admin only' });
+    const id = String(msg.id || '').toLowerCase();
+    if (!id) return sendTo(ws, { t: 'admin-game-status', text: 'failed', error: 'id required', done: true });
+    // Refuse if any room is currently using this game.
+    const inUse = rooms.listRooms().some(r => r.gameType === id);
+    if (inUse) return sendTo(ws, { t: 'admin-game-status', text: 'failed', error: 'a room is currently using this game; close it first', done: true });
+    sendTo(ws, { t: 'admin-game-status', text: 'removing submodule + restarting…' });
+    const res = await gameManager.deleteGameRepo({ id }, { actorId: me.userId });
+    if (!res.ok) return sendTo(ws, { t: 'admin-game-status', text: 'failed', error: res.error, done: true });
+    sendTo(ws, { t: 'admin-game-status', text: 'removed games/' + id + ' · restart queued', done: true });
     return;
   }
 
@@ -507,6 +546,24 @@ async function handleMessage(ws, c, msg){
     sendTo(ws, { t: 'dev-list', projects, claudeAvailable: claudeClient.isConfigured() });
     return;
   }
+  if (t === 'gh-list-html') {
+    try {
+      const items = await gameManager.listPlatformHtmlFiles();
+      sendTo(ws, { t: 'gh-html-list', items });
+    } catch (err) {
+      sendTo(ws, { t: 'gh-html-list', items: [], error: err.message || String(err) });
+    }
+    return;
+  }
+  if (t === 'gh-fetch-html') {
+    try {
+      const html = await gameManager.fetchPlatformFile(String(msg.path || ''));
+      sendTo(ws, { t: 'gh-html-content', path: msg.path, html });
+    } catch (err) {
+      sendTo(ws, { t: 'gh-html-content', path: msg.path, error: err.message || String(err) });
+    }
+    return;
+  }
   if (t === 'dev-create') {
     const project = devStudio.createProject({
       userId: me.userId,
@@ -544,7 +601,7 @@ async function handleMessage(ws, c, msg){
     return;
   }
   if (t === 'dev-release') {
-    const res = devStudio.release(me.userId, msg.id | 0);
+    const res = devStudio.release(me.userId, msg.id | 0, msg.title);
     if (!res.ok) return sendTo(ws, { t: 'error', error: res.error });
     sendTo(ws, { t: 'dev-released', id: msg.id | 0, release: res.release });
     // Refresh published-games broadcast to everyone viewing the lobby
