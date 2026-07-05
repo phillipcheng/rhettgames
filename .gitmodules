@@ -1,12 +1,12 @@
-[submodule "games/gungame"]
-	path = games/gungame
-	url = https://github.com/phillipcheng/gungame.git
-	branch = main
 [submodule "games/demon-slayer"]
 	path = games/demon-slayer
 	url = https://github.com/phillipcheng/demon-slayer.git
 	branch = main
-[submodule "games/demo-game-5fet"]
-	path = games/demo-game-5fet
-	url = https://github.com/phillipcheng/demo-game-5fet.git
+[submodule "games/fork-of-gun-game-2-0"]
+	path = games/fork-of-gun-game-2-0
+	url = https://github.com/phillipcheng/fork-of-gun-game-2-0.git
+	branch = main
+[submodule "games/fork-of-demon-slayer"]
+	path = games/fork-of-demon-slayer
+	url = https://github.com/phillipcheng/fork-of-demon-slayer.git
 	branch = main

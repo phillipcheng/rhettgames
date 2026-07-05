@@ -46,6 +46,31 @@ async function githubApi(pathname, init = {}){
   return { status: res.status, body, text };
 }
 
+// List .html files in the platform repo (phillipcheng/rhettgames @ main).
+// Returns [{ path, size }] sorted by path.
+export async function listPlatformHtmlFiles(){
+  const r = await githubApi(`/repos/${GH_OWNER}/rhettgames/git/trees/main?recursive=1`);
+  if (r.status !== 200 || !r.body || !Array.isArray(r.body.tree)) {
+    throw new Error(`tree fetch failed (${r.status}): ${(r.body && r.body.message) || r.text.slice(0, 120)}`);
+  }
+  return r.body.tree
+    .filter(e => e.type === 'blob' && /\.html?$/i.test(e.path))
+    .map(e => ({ path: e.path, size: e.size || 0 }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+// Fetch a single file from phillipcheng/rhettgames @ main as text.
+export async function fetchPlatformFile(filePath){
+  if (typeof filePath !== 'string' || filePath.includes('..') || filePath.startsWith('/')) {
+    throw new Error('invalid path');
+  }
+  const r = await githubApi(`/repos/${GH_OWNER}/rhettgames/contents/${encodeURI(filePath)}?ref=main`, {
+    headers: { 'Accept': 'application/vnd.github.raw' }
+  });
+  if (r.status !== 200) throw new Error(`file fetch failed (${r.status})`);
+  return r.text;
+}
+
 // Check if a repo already exists under GH_OWNER.
 async function repoExists(name){
   const r = await githubApi(`/repos/${GH_OWNER}/${name}`);
@@ -294,12 +319,53 @@ Game contract.
 
 // ========= Public API =========
 
-export async function createGameRepo(spec, { actorId } = {}){
+export async function createGameRepo(spec, { actorId, force } = {}){
   const { id, name } = spec;
   if (!ID_RE.test(id)) return { ok: false, error: 'id must match /^[a-z][a-z0-9-]*$/, 2-42 chars' };
   if (!name || !name.trim()) return { ok: false, error: 'name required' };
   const submodulePath = path.join(ROOT, 'games', id);
-  if (fs.existsSync(submodulePath)) return { ok: false, error: 'a submodule at games/' + id + ' already exists locally' };
+
+  // Override mode: rewrite scaffolded files in the existing submodule, commit
+  // locally, bump the parent's pointer, then restart. No GitHub interaction.
+  // Note: this REPLACES any custom server.js / client.js / meta.js the existing
+  // game had. The seed.html is also replaced.
+  if (fs.existsSync(submodulePath) && force) {
+    try {
+      fs.writeFileSync(path.join(submodulePath, 'meta.js'),   metaJs(spec));
+      fs.writeFileSync(path.join(submodulePath, 'server.js'), serverJs(spec));
+      fs.writeFileSync(path.join(submodulePath, 'client.js'), clientJs(spec));
+      fs.writeFileSync(path.join(submodulePath, 'seed.html'), spec.seedHtml || minimalSeed(spec));
+      fs.writeFileSync(path.join(submodulePath, 'README.md'), readmeFor(spec));
+    } catch (err) {
+      return { ok: false, error: 'failed to write files: ' + err.message };
+    }
+    await runCmd('git', ['add', '.'], { cwd: submodulePath });
+    const sc = await runCmd('git', ['commit', '-q', '-m', 'override scaffold (force)'], { cwd: submodulePath });
+    if (sc.code !== 0 && !(sc.err || '').includes('nothing to commit') && !(sc.out || '').includes('nothing to commit')) {
+      return { ok: false, error: 'submodule commit failed: ' + ((sc.err || sc.out) || '').slice(0, 200) };
+    }
+    await runCmd('git', ['add', 'games/' + id], { cwd: ROOT });
+    const pc = await runCmd('git', ['commit', '-q', '-m', 'override game: ' + id], { cwd: ROOT });
+    if (pc.code !== 0 && !(pc.err || '').includes('nothing to commit') && !(pc.out || '').includes('nothing to commit')) {
+      return { ok: false, error: 'platform commit failed: ' + ((pc.err || pc.out) || '').slice(0, 200) };
+    }
+    db.logAdminAction({
+      actorId: actorId || 0, kind: 'override-game',
+      target: id, details: 'name=' + name + ' (in-place override)', ok: true
+    });
+    setTimeout(() => {
+      spawn('sudo', ['-n', '/bin/systemctl', 'restart', 'rhettgames'], { detached: true, stdio: 'ignore' }).unref();
+    }, 400);
+    return {
+      ok: true, id, name,
+      repoUrl: 'https://github.com/' + GH_OWNER + '/' + id,
+      restart: 'queued', overridden: true
+    };
+  }
+
+  if (fs.existsSync(submodulePath)) {
+    return { ok: false, error: 'a submodule at games/' + id + ' already exists locally', requiresForce: true };
+  }
 
   // 1) Create the GitHub repo
   const created = await createGithubRepo({ id, description: spec.description });
@@ -357,6 +423,38 @@ export async function createGameRepo(spec, { actorId } = {}){
   } finally {
     try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
   }
+}
+
+// Remove a registered multiplayer game from the platform: deinit + remove the
+// submodule, commit locally, then queue a restart so the games registry
+// reflects it. We do NOT push to GitHub — admins control remote state.
+// The game's own GitHub repo is also left alone, so you can re-add it later.
+export async function deleteGameRepo({ id }, { actorId } = {}){
+  if (!ID_RE.test(id)) return { ok: false, error: 'invalid id' };
+  const submodulePath = path.join(ROOT, 'games', id);
+  if (!fs.existsSync(submodulePath)) return { ok: false, error: 'no submodule at games/' + id };
+
+  const r1 = await runCmd('git', ['submodule', 'deinit', '-f', '--', 'games/' + id], { cwd: ROOT });
+  if (r1.code !== 0) return { ok: false, error: 'submodule deinit failed: ' + (r1.err || '').slice(0, 200) };
+  const r2 = await runCmd('git', ['rm', '-f', 'games/' + id], { cwd: ROOT });
+  if (r2.code !== 0) return { ok: false, error: 'git rm failed: ' + (r2.err || '').slice(0, 200) };
+
+  const cachedModule = path.join(ROOT, '.git', 'modules', 'games', id);
+  try { fs.rmSync(cachedModule, { recursive: true, force: true }); } catch {}
+
+  const r3 = await runCmd('git', ['commit', '-q', '-m', 'remove game: ' + id], { cwd: ROOT });
+  if (r3.code !== 0) return { ok: false, error: 'platform commit failed: ' + (r3.err || r3.out || '').slice(0, 200) };
+
+  db.logAdminAction({
+    actorId: actorId || 0, kind: 'delete-game',
+    target: id, details: 'submodule removed locally (no remote push)', ok: true
+  });
+
+  setTimeout(() => {
+    spawn('sudo', ['-n', '/bin/systemctl', 'restart', 'rhettgames'], { detached: true, stdio: 'ignore' }).unref();
+  }, 400);
+
+  return { ok: true, id, restart: 'queued' };
 }
 
 export async function promoteReleaseToGame(spec, { actorId } = {}){

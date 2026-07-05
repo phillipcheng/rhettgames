@@ -103,6 +103,16 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_admin_actions_recent ON admin_actions(created_at DESC);
 
+  CREATE TABLE IF NOT EXISTS sessions (
+    token      TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL,
+    name       TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_seen  INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
   CREATE TABLE IF NOT EXISTS login_events (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id    INTEGER NOT NULL,
@@ -248,6 +258,25 @@ const stmts = {
        LEFT JOIN matches m ON m.id = mp.match_id AND m.ended_at IS NOT NULL
       WHERE u.id = ?
       GROUP BY u.id`
+  ),
+
+  insertSession: db.prepare(
+    `INSERT INTO sessions (token, user_id, name, created_at, last_seen) VALUES (?, ?, ?, ?, ?)`
+  ),
+  findSession: db.prepare(
+    `SELECT token, user_id, name, created_at, last_seen FROM sessions WHERE token = ?`
+  ),
+  touchSession: db.prepare(
+    `UPDATE sessions SET last_seen = ? WHERE token = ?`
+  ),
+  deleteSession: db.prepare(
+    `DELETE FROM sessions WHERE token = ?`
+  ),
+  deleteSessionsForUser: db.prepare(
+    `DELETE FROM sessions WHERE user_id = ?`
+  ),
+  deleteExpiredSessions: db.prepare(
+    `DELETE FROM sessions WHERE created_at < ?`
   )
 };
 
@@ -295,6 +324,7 @@ export const deleteUserCascade = db.transaction((id) => {
   stmts.deleteDevGamesByUser.run(id);       // cascade-deletes dev_messages
   stmts.deleteAdminActionsByActor.run(id);
   stmts.deleteLoginEventsByUser.run(id);
+  stmts.deleteSessionsForUser.run(id);
   stmts.deleteUser.run(id);
 });
 
@@ -452,6 +482,9 @@ const releaseStmts = {
   ),
   bumpPlayCount: db.prepare(
     `UPDATE released_games SET play_count = play_count + 1 WHERE id = ?`
+  ),
+  deletePublishedByDevGame: db.prepare(
+    `DELETE FROM released_games WHERE dev_game_id = ?`
   )
 };
 
@@ -477,4 +510,27 @@ export function listPublishedGames(){
 }
 export function bumpPlayCount(id){
   releaseStmts.bumpPlayCount.run(id);
+}
+export function deletePublishedByDevGame(devGameId){
+  return releaseStmts.deletePublishedByDevGame.run(devGameId).changes;
+}
+
+export function insertSession(token, userId, name){
+  const now = Date.now();
+  stmts.insertSession.run(token, userId, name, now, now);
+}
+export function findSession(token){
+  return stmts.findSession.get(token) || null;
+}
+export function touchSession(token){
+  stmts.touchSession.run(Date.now(), token);
+}
+export function deleteSession(token){
+  stmts.deleteSession.run(token);
+}
+export function deleteSessionsForUser(userId){
+  stmts.deleteSessionsForUser.run(userId);
+}
+export function deleteExpiredSessions(olderThanCreatedAt){
+  stmts.deleteExpiredSessions.run(olderThanCreatedAt);
 }

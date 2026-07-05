@@ -2,12 +2,10 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import * as db from './db.js';
 
-// In-memory session table: token -> { userId, name, createdAt, lastSeen }
-const sessions = new Map();
-// userId -> token (to enforce single active session per account)
-const userToSession = new Map();
-
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+// Sweep expired sessions on boot.
+db.deleteExpiredSessions(Date.now() - SESSION_TTL_MS);
 
 function now(){ return Date.now(); }
 
@@ -60,41 +58,32 @@ export async function login(name, password){
 }
 
 function issueSession(userId, name, role){
-  // Evict any previous session for this user
-  const prev = userToSession.get(userId);
-  if (prev) sessions.delete(prev);
-
+  // Evict any previous sessions for this user (single active session policy).
+  db.deleteSessionsForUser(userId);
   const token = newToken();
-  const session = { token, userId, name, role: role || 'player', createdAt: now(), lastSeen: now() };
-  sessions.set(token, session);
-  userToSession.set(userId, token);
-  return { ok: true, token, userId, name, role: session.role };
+  db.insertSession(token, userId, name);
+  return { ok: true, token, userId, name, role: role || 'player' };
 }
 
 export function verifyToken(token){
   if (!token) return null;
-  const s = sessions.get(token);
+  const s = db.findSession(token);
   if (!s) return null;
-  if (now() - s.createdAt > SESSION_TTL_MS) {
-    sessions.delete(token);
-    userToSession.delete(s.userId);
+  if (now() - s.created_at > SESSION_TTL_MS) {
+    db.deleteSession(token);
     return null;
   }
-  s.lastSeen = now();
-  const fresh = db.findUserById(s.userId);
+  const fresh = db.findUserById(s.user_id);
   if (!fresh || fresh.locked) {
     // Account deleted or locked — revoke the session immediately.
-    sessions.delete(token);
-    userToSession.delete(s.userId);
+    db.deleteSession(token);
     return null;
   }
-  s.role = fresh.role;
-  return { userId: s.userId, name: s.name, role: s.role || 'player' };
+  db.touchSession(token);
+  return { userId: s.user_id, name: s.name, role: fresh.role || 'player' };
 }
 
 export function logout(token){
-  const s = sessions.get(token);
-  if (!s) return;
-  sessions.delete(token);
-  if (userToSession.get(s.userId) === token) userToSession.delete(s.userId);
+  if (!token) return;
+  db.deleteSession(token);
 }

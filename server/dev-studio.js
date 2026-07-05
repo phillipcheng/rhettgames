@@ -272,16 +272,19 @@ export async function chatStream(userId, id, message, { onUserEcho, onChunk, onD
   );
 }
 
-export function release(userId, id){
+export function release(userId, id, customTitle){
   const p = db.getDevProject(id);
   if (!p) return { ok: false, error: 'not found' };
   if (p.user_id !== userId) return { ok: false, error: 'forbidden' };
   // Use the on-disk copy if present (authoritative), else the DB copy.
   const html = readProjectFile(id) || p.html;
+  const title = (typeof customTitle === 'string' && customTitle.trim())
+    ? customTitle.trim().slice(0, 80)
+    : p.title;
   const rel = db.releaseDevProject({
     devGameId: id,
     authorUserId: userId,
-    title: p.title,
+    title,
     baseGameId: p.base_game_id,
     html
   });
