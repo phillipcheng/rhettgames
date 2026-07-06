@@ -467,9 +467,9 @@ const CIVS=[
 ];
 const CITY_NAMES=["Aurelia","Highspire","Ravenmoor","Goldreach","Stormhold","Westbrook","Ironforge","Sunhaven","Thornwall","Lakeshire","Brightwater","Stonegate","Fairmont","Eastvale","Duskwood","Greymarch","Silverpond","Redcliff","Oakhollow","Frostvale","Mistral","Caldera"];
 const DIFFS={
-  chill:{name:"Settler",ds:"Very relaxed",em:"🌿",aiMult:0.6,aiAggro:0.1,aiPow:0.65,playerPow:1.45},
-  normal:{name:"Prince",ds:"Balanced",em:"⚔️",aiMult:0.9,aiAggro:0.36,aiPow:0.9,playerPow:1.25},
-  hard:{name:"Emperor",ds:"Fierce",em:"🔥",aiMult:1.15,aiAggro:0.62,aiPow:1.1,playerPow:1.2}
+  chill:{name:"Settler",ds:"Very relaxed",em:"🌿",aiMult:0.6,aiAggro:0.1,aiPow:0.55,playerPow:1.45},
+  normal:{name:"Prince",ds:"Balanced",em:"⚔️",aiMult:0.9,aiAggro:0.36,aiPow:0.8,playerPow:1.25},
+  hard:{name:"Emperor",ds:"Fierce",em:"🔥",aiMult:1.15,aiAggro:0.62,aiPow:1.0,playerPow:1.2}
 };
 
 let G=null;
@@ -934,7 +934,7 @@ function unitStrength(unit,attacking){
   if(attacking&&G.wonderOwner&&G.wonderOwner.suntzu===unit.owner) s*=1.1;
   if(unit.owner===0&&hasPol("discipline")) s*=1.1;
   if(unit.rank===1) s*=1.5; else if(unit.rank===2) s*=2;
-  if(unit.owner>=0){ for(const _ni of neighIdx(unit.tile)){ const _a=unitAt(_ni); if(_a&&_a.owner===unit.owner&&_a.hero&&_a.id!==unit.id){ s*=1.15; break; } } }
+  if(unit.owner>=0){ for(const _ni of neighIdx(unit.tile)){ const _a=unitAt(_ni); if(_a&&_a.owner===unit.owner&&_a.hero&&_a.id!==unit.id){ s*=(unit.owner===0?1.15:1.08); break; } } }
   return Math.max(1,s);
 }
 function cityStrength(city){
