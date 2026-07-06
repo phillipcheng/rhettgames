@@ -185,6 +185,7 @@
   #dipoffer{position:fixed;inset:0;z-index:63;display:none;align-items:center;justify-content:center;background:rgba(4,7,11,0.66);padding:16px;}
   #gppick{position:fixed;inset:0;z-index:64;display:none;align-items:center;justify-content:center;background:rgba(4,7,11,0.7);padding:16px;}
   #citychoice{position:fixed;inset:0;z-index:65;display:none;align-items:center;justify-content:center;background:rgba(4,7,11,0.7);padding:16px;}
+  #congress{position:fixed;inset:0;z-index:66;display:none;align-items:center;justify-content:center;background:rgba(4,7,11,0.72);padding:16px;}
   .diprow{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);margin-bottom:10px;}
   .dip-em{width:42px;height:42px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:22px;border:2px solid;}
   .dip-main{flex:1;min-width:0;}
@@ -322,6 +323,7 @@
   <div id="dipoffer"></div>
   <div id="gppick"></div>
   <div id="citychoice"></div>
+  <div id="congress"></div>
   <div id="promo"></div>
   <div id="eventpop"></div>
   <div id="banner"><div class="inner">
@@ -508,7 +510,7 @@ function newGame(seed,civIndex,diffKey,rivals,mods){
     revealAround(s,k,3);
   }
   placeCityStates(3);
-  G.nemesis=null; G.nemesisSlainBy=null;
+  G.nemesis=null; G.nemesisSlainBy=null; G.congress={next:20,points:{},host:null};
   if(G.diff==="chill") G.players[0].gold+=40;
   recomputeVisibility(); centerOn(starts[0]); applyStartZoom(); saveGame();
   return G;
@@ -1050,6 +1052,151 @@ function pickGP(k){
   fxAfterGP(); saveGame(); flushGP();
 }
 function fxAfterGP(){ updateHUD(); if(G.selCity!=null){const c=G.cities.find(x=>x.id===G.selCity); if(c&&isOpen("cityscreen")) renderCityScreen(c);} }
+/* ---- automation ---- */
+function autoExplore(u){
+  let best=null,bd=1e9; const up=xy(u.tile);
+  for(let i=0;i<G.map.length;i++){
+    const t=G.map[i]; if(t.explored[0]) continue; if(!TERR[t.t].land||TERR[t.t].block) continue;
+    const p=xy(i),d=cheby(up[0],up[1],p[0],p[1]);
+    if(d<bd){bd=d;best=i;}
+  }
+  if(best==null){ aiWander(u); return; }
+  aiStepToward(u,best);
+}
+function runAutomation(){
+  const p0=G.players[0]; if(!p0||p0.defeated||G.over) return;
+  for(const u of G.units){
+    if(u.owner!==0||!u.auto||u.moved||u.train||u.trading) continue;
+    if(u.type==="worker"){ if(u.work){u.mp=0;u.moved=true;} else aiWorkerAct(u,p0); }
+    else autoExplore(u);
+  }
+}
+/* ---- vassal states ---- */
+function makeVassal(id){
+  const q=G.players[id]; if(!q||q.minor||q.defeated||q.vassalOf===0) return;
+  q.vassalOf=0;
+  if(isAtWar(0,id)) makePeace(0,id);
+  // they take up your banners at once
+  for(const r of G.players){ if(r.id===0||r.id===id||r.minor||r.defeated) continue; if(isAtWar(0,r.id)&&!isAtWar(id,r.id)) declareWar(id,r.id); }
+  showEvent("\uD83D\uDC51","A VASSAL KNEELS",q.leader+" of "+q.civ+" bends the knee. They will pay you tribute every turn, fight your wars, and never raise a blade against you \u2014 while you remain strong.",true);
+  try{sfx("victory");}catch(e){}
+  renderDipScreen(); updateHUD(); saveGame();
+}
+function releaseVassal(id){
+  const q=G.players[id]; if(!q||q.vassalOf!==0) return;
+  q.vassalOf=null; q.favor=(q.favor||0)+2;
+  toast("\uD83D\uDC51 You free "+q.civ+" \u2014 they are deeply grateful (+2 favor).");
+  renderDipScreen(); saveGame();
+}
+function canDemandVassal(id){
+  const q=G.players[id]; if(!q||q.minor||q.defeated||q.vassalOf===0) return false;
+  if(!isAtWar(0,id)) return false;
+  const my=powerOf(0),their=powerOf(id)||1;
+  return my>=their*2.5||(G.cities.filter(c=>c.owner===id).length<=2&&my>=their*1.5);
+}
+function vassalTurn(p){
+  // tribute flows to the crown
+  const p0=G.players[0];
+  const trib=Math.min(Math.floor(p.gold||0),5+G.cities.filter(c=>c.owner===p.id).length*3);
+  if(trib>0){ p.gold-=trib; p0.gold+=trib; p._tribLast=trib; }
+  // they march where you march
+  for(const r of G.players){ if(r.id===0||r.id===p.id||r.minor||r.defeated) continue; if(isAtWar(0,r.id)&&!isAtWar(p.id,r.id)) declareWar(p.id,r.id); }
+  // chains can be broken
+  if(powerOf(p.id)>powerOf(0)*1.1&&RNG()<0.08){
+    p.vassalOf=null; declareWar(p.id,0);
+    showEvent("\u26D3\uFE0F","REBELLION",p.leader+" of "+p.civ+" breaks their chains and declares WAR! Your former vassal has grown stronger than its master.",false);
+    try{sfx("attack");}catch(e){} shake(10);
+  }
+}
+/* ---- world congress ---- */
+const CONGRESS_RES=[
+ {id:"peace",ico:"\uD83D\uDD4A\uFE0F",nm:"Peace Accords",ds:"All wars end at once"},
+ {id:"sci",ico:"\uD83D\uDD2C",nm:"Science Fund",ds:"Every nation gains +40 science"},
+ {id:"charter",ico:"\uD83D\uDCB0",nm:"Trade Charter",ds:"Every nation gains +50 gold"},
+ {id:"aid",ico:"\uD83E\uDD32",nm:"Aid the Weak",ds:"The smallest empire receives +120 gold"},
+ {id:"denounce",ico:"\u2696\uFE0F",nm:"Wealth Levy",ds:"The richest empire is taxed 20%, split among the rest"}
+];
+function applyResolution(r){
+  const majors=G.players.filter(q=>!q.defeated&&!q.minor);
+  if(r.id==="peace"){
+    for(let a=0;a<G.players.length;a++)for(let b=a+1;b<G.players.length;b++){
+      const A=G.players[a],B=G.players[b];
+      if(A.defeated||B.defeated) continue;
+      if(isAtWar(a,b)) makePeace(a,b);
+    }
+    return "All wars across the world have ended.";
+  }
+  if(r.id==="sci"){ for(const q of majors) q.science+=40; return "Every nation gains +40 science."; }
+  if(r.id==="charter"){ for(const q of majors) q.gold+=50; return "Every nation gains +50 gold."; }
+  if(r.id==="aid"){ let w2=null,wc=1e9; for(const q of majors){const n=G.cities.filter(c=>c.owner===q.id).length; if(n<wc){wc=n;w2=q;}} if(w2){w2.gold+=120; return w2.civ+" (smallest empire) receives +120 gold.";} return "No aid was needed."; }
+  if(r.id==="denounce"){ let rich=null,rg=-1; for(const q of majors){ if((q.gold||0)>rg){rg=q.gold||0;rich=q;} } if(rich&&rg>20){ const tax=Math.round(rg*0.2); rich.gold-=tax; const others=majors.filter(q=>q!==rich); const cut=others.length?Math.floor(tax/others.length):0; for(const o of others) o.gold+=cut; return rich.civ+" is taxed "+tax+" gold, shared among the rest."; } return "The levy found no great fortune."; }
+  return "";
+}
+function congressVotes(){
+  const v={}; let pv=2;
+  for(const q of G.players){
+    if(q.id===0||q.defeated) continue;
+    if(q.minor){ if((q.influence||0)>=60&&!isAtWar(0,q.id)) pv+=1; continue; }
+    const bq=2+Math.floor(G.cities.filter(c=>c.owner===q.id).length/3);
+    if(q.vassalOf===0){ pv+=bq; continue; }
+    if((q.favor||0)>=2&&!isAtWar(0,q.id)){ pv+=bq; continue; }
+    v[q.id]=bq;
+  }
+  v[0]=pv; return v;
+}
+function congressStandings(){
+  const pts=(G.congress&&G.congress.points)||{}; let best=0,bid=null;
+  for(const k in pts){ if(k!=="0"&&pts[k]>best){best=pts[k];bid=k;} }
+  return {you:pts[0]||0,best:best,bid:bid};
+}
+function runCongress(){
+  if(!G.congress||G.over) return;
+  G.congress.next=G.turn+15;
+  const votes=congressVotes();
+  let host=null,hv=-1,tie=false;
+  for(const k in votes){ const n=votes[k]; if(n>hv){hv=n;host=parseInt(k,10);tie=false;} else if(n===hv) tie=true; }
+  if(tie) host=null;
+  let winLine="Deadlock \u2014 no host was crowned this session.";
+  if(host!=null){
+    G.congress.points[host]=(G.congress.points[host]||0)+1;
+    const hp2=G.players[host]; hp2.gold+=50;
+    winLine=(host===0?"YOU are elected Host! (+1 point, +50 gold)":hp2.leader+" of "+hp2.civ+" is elected Host (+1 point).");
+  }
+  const pts=G.congress.points;
+  if(host!=null&&pts[host]>=3){
+    const hpw=G.players[host];
+    endGame(host===0,host===0?"Diplomatic Victory":"Defeat",host===0?"Three times the world crowned you Host. The nations of the earth now follow your voice \u2014 the World Congress is yours forever.":hpw.leader+" has been crowned permanent Ruler of the World Congress. The nations follow another voice.");
+    return;
+  }
+  const el=$('congress'); if(!el) return;
+  const std=congressStandings();
+  const standLine="Points \u2014 You: "+std.you+"/3"+(std.bid!=null?" \u00B7 "+G.players[std.bid].civ+": "+std.best+"/3":"");
+  const voteLine="Your bloc: "+votes[0]+" votes";
+  if(host===0){
+    const picks=[]; const pool=CONGRESS_RES.slice();
+    while(picks.length<3&&pool.length){ picks.push(pool.splice(rint(pool.length),1)[0]); }
+    let html="<div class='promo-card'><div class='promo-hd'>\uD83C\uDFDB\uFE0F WORLD CONGRESS</div><div class='promo-sub'>"+winLine+"<br>"+voteLine+" \u00B7 "+standLine+"<br><b>As Host, choose the resolution:</b></div><div class='promo-opts'>";
+    for(const r of picks) html+="<button class='promo-opt' data-r='"+r.id+"'><div class='po-ico'>"+r.ico+"</div><div class='po-nm'>"+r.nm+"</div><div class='po-ds'>"+r.ds+"</div></button>";
+    html+="</div></div>"; el.innerHTML=html; el.style.display='flex'; try{sfx("victory");}catch(e){}
+    el.querySelectorAll('[data-r]').forEach(btn=>{btn.onclick=()=>{
+      const r=CONGRESS_RES.find(x=>x.id===btn.getAttribute('data-r'));
+      const line=applyResolution(r);
+      el.style.display='none'; toast("\uD83C\uDFDB\uFE0F "+r.nm+": "+line); updateHUD(); saveGame();
+    };});
+  } else {
+    const r=CONGRESS_RES[rint(CONGRESS_RES.length)];
+    const line=applyResolution(r);
+    el.innerHTML="<div class='promo-card'><div class='promo-hd'>\uD83C\uDFDB\uFE0F WORLD CONGRESS</div><div class='promo-sub'>"+winLine+"<br>"+voteLine+" \u00B7 "+standLine+"</div><div class='promo-opts'><button class='promo-opt' data-c='ok'><div class='po-ico'>"+r.ico+"</div><div class='po-nm'>"+r.nm+"</div><div class='po-ds'>"+line+"</div></button></div></div>";
+    el.style.display='flex'; try{sfx("found");}catch(e){}
+    el.querySelector('[data-c]').onclick=()=>{el.style.display='none';};
+    updateHUD(); saveGame();
+  }
+}
+function stepCongress(){
+  const p0=G.players[0]; if(!p0||p0.defeated||G.over) return;
+  if(!G.congress) G.congress={next:20,points:{},host:null};
+  if(G.turn>=G.congress.next) runCongress();
+}
 /* ---- annex or raze ---- */
 function removeCity(c){
   for(const t of G.map){ if(t.ownerCity===c.id){ t.owner=-1; t.ownerCity=-1; } }
@@ -1511,6 +1658,8 @@ function warCount(id){ let n=0; for(const q of G.players){ if(q.id!==id&&!q.defe
 function powerOf(owner){ let s=0; for(const u of G.units){ if(u.owner!==owner) continue; const U=UNITS[u.type]; if(U.civilian) continue; s+=U.atk+U.def+u.hp/6; } s+=G.cities.filter(c=>c.owner===owner).length*15; return s; }
 function declareWar(a,b){
   if(a===b||a<0||b<0) return; const pa=G.players[a],pb=G.players[b]; if(!pa||!pb) return;
+  if(pa.vassalOf===b) pa.vassalOf=null;
+  if(pb.vassalOf===a) pb.vassalOf=null;
   if(pa.atWar[b]) return;
   pa.atWar[b]=true; pb.atWar[a]=true; pa._warTurns[b]=0; pb._warTurns[a]=0;
   if(a===0){ toast("\u2694\uFE0F You declared WAR on "+pb.leader+" of "+pb.civ+"!"); try{sfx("attack");}catch(e){} shake(8); }
@@ -1541,6 +1690,7 @@ function playerNear(aiId){
   return false;
 }
 function aiDiplomacy(p,diff){
+  if(p.vassalOf===0){ vassalTurn(p); return; }
   if(G.turn<8) return; const myPow=powerOf(p.id);
   // empires that cherish your friendship join your wars
   if((p.favor||0)>=2&&!isAtWar(p.id,0)){
@@ -1605,11 +1755,12 @@ function aiDiplomacy(p,diff){
 function offerPeaceToPlayer(p){
   const el=$('dipoffer'); if(!el||el.style.display==='flex') return;
   const tribute=Math.min(p.gold,Math.round(25+G.turn*1.2));
-  el.innerHTML="<div class='promo-card'><div class='promo-hd'>\uD83D\uDD4A\uFE0F "+p.leader+" sues for peace</div><div class='promo-sub'>"+p.civ+" is weary of war \u2014 they offer <b style='color:var(--gold)'>"+tribute+" gold</b> in tribute.</div><div class='promo-opts'><button class='promo-opt' data-a='yes'><div class='po-ico'>\uD83D\uDD4A\uFE0F</div><div class='po-nm'>Accept Peace</div><div class='po-ds'>Take "+tribute+" gold tribute</div></button><button class='promo-opt' data-a='no'><div class='po-ico'>\u2694\uFE0F</div><div class='po-nm'>Refuse</div><div class='po-ds'>The war continues</div></button></div></div>";
+  el.innerHTML="<div class='promo-card'><div class='promo-hd'>\uD83D\uDD4A\uFE0F "+p.leader+" sues for peace</div><div class='promo-sub'>"+p.civ+" is weary of war \u2014 they offer <b style='color:var(--gold)'>"+tribute+" gold</b> in tribute.</div><div class='promo-opts'><button class='promo-opt' data-a='yes'><div class='po-ico'>\uD83D\uDD4A\uFE0F</div><div class='po-nm'>Accept Peace</div><div class='po-ds'>Take "+tribute+" gold tribute</div></button><button class='promo-opt' data-a='no'><div class='po-ico'>\u2694\uFE0F</div><div class='po-nm'>Refuse</div><div class='po-ds'>The war continues</div></button>"+(powerOf(p.id)<powerOf(0)*0.4?"<button class='promo-opt' data-a='vassal'><div class='po-ico'>\uD83D\uDC51</div><div class='po-nm'>Demand Vassalage</div><div class='po-ds'>They kneel: tribute every turn, their armies fight your wars</div></button>":"")+"</div></div>";
   el.style.display='flex';
   el.querySelectorAll('.promo-opt').forEach(function(btn){btn.onclick=function(){
     el.style.display='none';
     if(btn.getAttribute('data-a')==='yes'){ p.gold=Math.max(0,p.gold-tribute); G.players[0].gold+=tribute; makePeace(0,p.id); updateHUD(); }
+    else if(btn.getAttribute('data-a')==='vassal'){ makeVassal(p.id); }
     else { toast("You refused "+p.leader+"'s peace offer."); }
   };});
 }
@@ -1801,12 +1952,14 @@ function endRound(){
     if(G.diff==="chill"&&u.owner===0) h+=5;
     u.hp=Math.min(u.maxhp,u.hp+h);
   }
+  stepCongress();
   processRazing();
   stepQuests();
   processTrade();
   progressTraining();
   // Refresh units for the new round.
   for(const u of G.units){u.mp=UNITS[u.type].move+(u.promos&&u.promos.move?1:0)+(UNITS[u.type].mounted&&civT(u.owner).mountedMove?1:0); u.moved=false; u.attacked=false; if(u.train||u.trading){u.mp=0; u.moved=true;}}
+  runAutomation();
   stepGoldenAge();
   stepCulture();
   stepCityStates();
@@ -2051,10 +2204,10 @@ function checkVictory(){
       toast("Your sworn enemy has fallen to another \u2014 the vendetta ends unfulfilled."); G.nemesis=null; G.nemesisSlainBy=null;
     }
   }
-  for(const p of G.players){if(p.techs.sflight){endGame(p.id===0,p.id===0?"Science Victory":"Defeat",p.id===0?"Your civilization reaches the stars. A new age dawns under your banner.":G.players[p.id].leader+" launched into space first. The world watches another nation's triumph."); return;}}
-  for(const p of G.players){if(p.minor||p.defeated) continue; if((p.culture||0)>=1000){endGame(p.id===0,p.id===0?"Culture Victory":"Defeat",p.id===0?"Your art, faith and philosophy have conquered every heart. The world dreams in your image.":p.leader+"'s culture has swept the world. Every nation now dreams in "+p.civ+"'s image."); return;}}
+  for(const p of G.players){if(p.vassalOf===0) continue; if(p.techs.sflight){endGame(p.id===0,p.id===0?"Science Victory":"Defeat",p.id===0?"Your civilization reaches the stars. A new age dawns under your banner.":G.players[p.id].leader+" launched into space first. The world watches another nation's triumph."); return;}}
+  for(const p of G.players){if(p.minor||p.defeated||p.vassalOf===0) continue; if((p.culture||0)>=1000){endGame(p.id===0,p.id===0?"Culture Victory":"Defeat",p.id===0?"Your art, faith and philosophy have conquered every heart. The world dreams in your image.":p.leader+"'s culture has swept the world. Every nation now dreams in "+p.civ+"'s image."); return;}}
   if(G.players[0].defeated){endGame(false,"Defeat","Your last city has fallen. The chronicle of your people ends here."); return;}
-  const aliveAI=G.players.filter(p=>!p.defeated&&p.id!==0&&!p.minor);
+  const aliveAI=G.players.filter(p=>!p.defeated&&p.id!==0&&!p.minor&&p.vassalOf!==0);
   if(aliveAI.length===0&&G.turn>1){endGame(true,"Domination Victory","Every rival capital flies your colors. The world is yours to shape."); return;}
 }
 var PROMOS=[{k:"atk",ico:"\u2694",nm:"Offense",ds:"+25% attack"},{k:"def",ico:"\uD83D\uDEE1",nm:"Defense",ds:"+25% defense"},{k:"move",ico:"\u26A1",nm:"Mobility",ds:"+1 movement"}];
@@ -2217,7 +2370,7 @@ function drawCity(c){
   if(G.map[c.tile].visible[0]){
     ctx.font="600 "+(TILE*0.16)+"px Inter,sans-serif"; ctx.textAlign="center"; ctx.textBaseline="bottom";
     ctx.fillStyle="rgba(0,0,0,0.6)"; ctx.fillRect(cx-TILE*0.4,sy-TILE*0.02,TILE*0.8,TILE*0.18);
-    ctx.fillStyle="#fff"; ctx.fillText((c.razing?"\uD83D\uDD25 ":"")+(c.owner>0&&c.owner===G.nemesis?"\uD83C\uDFAF ":"")+(c.owner>0&&isAtWar(0,c.owner)?"\u2694 ":"")+c.name,cx,sy+TILE*0.16);
+    ctx.fillStyle="#fff"; ctx.fillText((c.razing?"\uD83D\uDD25 ":"")+(c.owner>0&&G.players[c.owner]&&G.players[c.owner].vassalOf===0?"\uD83D\uDC51 ":"")+(c.owner>0&&c.owner===G.nemesis?"\uD83C\uDFAF ":"")+(c.owner>0&&isAtWar(0,c.owner)?"\u2694 ":"")+c.name,cx,sy+TILE*0.16);
     if(c.hp<c.maxhp){const w=TILE*0.7; ctx.fillStyle="#0c1119"; ctx.fillRect(cx-w/2,sy+TILE*0.78,w,4); ctx.fillStyle=col; ctx.fillRect(cx-w/2,sy+TILE*0.78,w*(c.hp/c.maxhp),4);}
   }
 }
@@ -2333,6 +2486,7 @@ function renderSelPanel(){
     if(mine&&G.cur===0&&!moving){
       if(u.type==="settler") act.appendChild(mkBtn("Found City","primary",()=>foundCity(u)));
       if(u.type==="worker"){const tt=G.map[u.tile].t;
+        act.appendChild(mkBtn(u.auto?"\uD83E\uDD16 Auto-Improve \u2713":"\uD83E\uDD16 Auto-Improve",u.auto?"primary":"",()=>{u.auto=!u.auto; toast(u.auto?"Worker will improve the empire by itself each turn.":"Manual control restored."); if(u.auto&&!u.moved) aiWorkerAct(u,G.players[0]); renderSelPanel(); saveGame();}));
         if(["grass","plains","desert"].indexOf(tt)>=0) act.appendChild(mkBtn("Farm","",()=>workerBuild(u,"farm")));
         if(tt==="hills") act.appendChild(mkBtn("Mine","",()=>workerBuild(u,"mine")));
         if(tt==="forest") act.appendChild(mkBtn("Chop","",()=>workerBuild(u,"chop")));
@@ -2340,6 +2494,7 @@ function renderSelPanel(){
         if(G.players[0].techs.wheel) act.appendChild(mkBtn("Road","",()=>workerBuild(u,"road")));
         if(u.work) act.appendChild(mkBtn("Cancel","danger",()=>{u.work=null; renderSelPanel(); saveGame();}));
       }
+      if(u.type==="scout") act.appendChild(mkBtn(u.auto?"\uD83E\uDD16 Auto-Explore \u2713":"\uD83E\uDD16 Auto-Explore",u.auto?"primary":"",()=>{u.auto=!u.auto; toast(u.auto?"Scout will wander the fog by itself.":"Manual control restored."); if(u.auto&&!u.moved) autoExplore(u); renderSelPanel(); saveGame();}));
       if(u.type==="caravan"&&!u.trading){ const _tc=tradeTargetCity(u); if(_tc) act.appendChild(mkBtn("\uD83D\uDC2A Trade with "+_tc.name,"primary",()=>startTrade(u,_tc))); }
       if(u.type==="caravan"&&u.trading){ const _dc=G.cities.find(c=>c.id===u.trading.to); act.appendChild(mkBtn("End Route ("+u.trading.left+" turns left)","danger",()=>{cancelTrade(u,"Trade route ended."); updateHUD(); saveGame();})); }
       if(u.train) act.appendChild(mkBtn("Cancel Training","danger",()=>cancelTraining(u)));
@@ -2468,10 +2623,20 @@ function dipAttitude(q){
 function renderDipScreen(){
   const body=$('dip-body'); if(!body) return; let html="";
   const rivals=G.players.filter(q=>q.id>0&&!q.defeated&&!q.minor);
-  $('dip-sum').textContent=rivals.length+" rival nation"+(rivals.length===1?"":"s");
+  const _cg=G.congress||{next:20,points:{}}; const _std=congressStandings(); const _v=congressVotes();
+  $('dip-sum').textContent=rivals.length+" rivals \u00B7 \uD83C\uDFDB\uFE0F Congress in "+Math.max(0,_cg.next-G.turn)+"t \u00B7 your bloc "+_v[0]+" votes \u00B7 pts "+_std.you+"/3";
   if(!rivals.length) html="<div style='color:var(--dim);font-size:14px;padding:8px;'>No rivals remain. The world is yours.</div>";
   const myPow=powerOf(0)||1;
   for(const q of rivals){
+    if(q.vassalOf===0){
+      html+="<div class='diprow' style='border-color:rgba(232,180,74,0.5);'><div class='dip-em' style='border-color:"+q.color+";background:"+q.color+"22'>"+q.em+"</div>"
+        +"<div class='dip-main'><div class='dip-nm'>\uD83D\uDC51 "+q.leader+" <span style='color:var(--dim);font-weight:600'>\u00B7 "+q.civ+"</span></div>"
+        +"<div class='dip-ds'>Your loyal vassal \u00B7 tribute "+(q._tribLast||0)+"g/turn \u00B7 fights your wars</div>"
+        +"<div class='dip-st peace'>\uD83D\uDC51 YOUR VASSAL</div></div>"
+        +"<button class='dipbtn' data-vr='"+q.id+"'>Release<br><span style='font-weight:600;font-size:11px'>+2 favor</span></button>"
+        +"</div>";
+      continue;
+    }
     const war=isAtWar(0,q.id), att=dipAttitude(q), qPow=powerOf(q.id);
     const rel=qPow/myPow, army=rel>1.25?"stronger than yours":rel<0.75?"weaker than yours":"about even with yours";
     const nc=G.cities.filter(c=>c.owner===q.id).length;
@@ -2481,6 +2646,7 @@ function renderDipScreen(){
       +"<div class='dip-ds'>"+att.em+" "+att.nm+((q.favor||0)!==0?" \u00B7 \uD83C\uDF81<span style='color:"+((q.favor||0)<0?"#ff8d7e":"var(--gold)")+";font-weight:800'>"+q.favor+"</span>"+((q.favor||0)<0&&!war?" \uD83D\uDE20 seeking vengeance":""):"")+" \u00B7 "+nc+" cities \u00B7 army "+army+"</div>"
       +"<div class='dip-st "+(war?"war":"peace")+"'>"+(war?"\u2694\uFE0F AT WAR":"\uD83D\uDD4A\uFE0F At Peace")+"</div>"+(q.id===G.nemesis?" <div class='dip-st war'>\uD83C\uDFAF SWORN ENEMY</div>":"")+"</div>"
       +"<div style='display:flex;flex-direction:column;gap:6px;flex-shrink:0;'>"
+      +(war&&canDemandVassal(q.id)?"<button class='dipbtn war' data-dvv='"+q.id+"'>\uD83D\uDC51 Demand<br><span style='font-weight:600;font-size:11px'>Vassalage</span></button>":"")
       +(war?"<button class='dipbtn peace' data-dp='"+q.id+"'>Offer Peace"+(needPay&&(q.favor||0)<2?"<br><span style='font-weight:600;font-size:11px'>pay "+payCost+"g</span>":"")+"</button>"
            :"<button class='dipbtn war' data-dw='"+q.id+"'>Declare War</button>")
       +"<button class='dipbtn' data-dg='"+q.id+"'>\uD83C\uDF81 Gift 50g</button>"
@@ -2510,6 +2676,8 @@ function renderDipScreen(){
   body.querySelectorAll('[data-dv]').forEach(el=>{el.onclick=()=>{const id=parseInt(el.getAttribute('data-dv'),10); if(confirm("Swear a vendetta against "+G.players[id].civ+"? They will resent you.")) declareVendetta(id);};});
   body.querySelectorAll('[data-dvr]').forEach(el=>{el.onclick=()=>renounceVendetta();});
   body.querySelectorAll('[data-ca]').forEach(el=>{el.onclick=()=>callToArms(parseInt(el.getAttribute('data-ca'),10));});
+  body.querySelectorAll('[data-vr]').forEach(el=>{el.onclick=()=>releaseVassal(parseInt(el.getAttribute('data-vr'),10));});
+  body.querySelectorAll('[data-dvv]').forEach(el=>{el.onclick=()=>{const id=parseInt(el.getAttribute('data-dvv'),10); if(confirm("Demand that "+G.players[id].civ+" kneel as your vassal?")) makeVassal(id);};});
   body.querySelectorAll('[data-dw]').forEach(el=>{el.onclick=()=>{const id=parseInt(el.getAttribute('data-dw'),10); if(confirm("Declare war on "+G.players[id].civ+"?")){declareWar(0,id); renderDipScreen();}};});
   body.querySelectorAll('[data-dp]').forEach(el=>{el.onclick=()=>{playerOfferPeace(parseInt(el.getAttribute('data-dp'),10));};});
 }
@@ -2547,6 +2715,9 @@ function renderHelp(){
     "<div class='helpcard'><h3>Units</h3><p>Workers build farms, mines, pastures and roads, and can <span class='k'>chop forests</span> — clearing a forest to grassland and rushing 20 production to your nearest city. Military units have ⚔attack and 🛡defense; ranged units (Archer, Catapult) strike without being hit back. Spearmen counter mounted units.</p></div>"+
     "<div class='helpcard'><h3>Ancient Ruins 🗿</h3><p>Glowing ruins dot the map. Move any unit onto one to claim a reward — gold, a free technology, a map of the region, fresh warriors, or a battle‑hardened unit. Explore to find them first.</p></div>"+
     "<div class='helpcard'><h3>Barbarians ☠️</h3><p>Raiders emerge from the wilderness and attack nearby units and cities. They can't capture cities, but they'll pillage and kill — keep a defender close to your borders and patrol with scouts.</p></div>"+
+    "<div class='helpcard'><h3>World Congress \uD83C\uDFDB\uFE0F</h3><p>Every <span class='k'>15 turns</span> the nations convene. Your voting bloc = your empire + <span class='k'>city-state allies</span> + <span class='k'>friends (favor 2+)</span> + <span class='k'>vassals</span>. The biggest bloc is crowned <span class='k'>Host</span> (+1 point, +50 gold) and, if that's you, <span class='k'>chooses the world resolution</span>. Host <span class='k'>3 sessions</span> to claim the <span class='k'>Diplomatic Victory</span> \u2014 but rivals earn points too.</p></div>"+
+    "<div class='helpcard'><h3>Vassal States \uD83D\uDC51</h3><p>Crush an enemy in war and <span class='k'>demand vassalage</span> \u2014 from the peace-offer popup or the Diplomacy panel when you're overwhelming. A vassal pays <span class='k'>tribute every turn</span>, <span class='k'>fights all your wars</span>, votes for you in Congress, never attacks you, and doesn't block your conquest victory. But stay strong \u2014 a vassal mightier than its master may <span class='k'>rebel</span>. Release one anytime for +2 favor.</p></div>"+
+    "<div class='helpcard'><h3>Automation \uD83E\uDD16</h3><p>Toggle <span class='k'>Auto-Improve</span> on a worker and it develops your empire by itself every turn, forever. Toggle <span class='k'>Auto-Explore</span> on a scout and it hunts the fog for ruins and wonders on its own. Tap the toggle again for manual control.</p></div>"+
     "<div class='helpcard'><h3>Pillage & Plunder \uD83D\uDD25</h3><p>March a military unit onto an enemy <span class='k'>farm, mine, pasture, or road</span> while at war and <span class='k'>pillage</span> it: the improvement burns, you loot gold, and your unit <span class='k'>heals +20</span>. War finally starves the enemy economy. Beware \u2014 barbarians burn improvements they cross too.</p></div>"+
     "<div class='helpcard'><h3>Corps & Armies \u2694</h3><p>Two identical units side by side can <span class='k'>merge</span>: normal + normal forms a <span class='k'>Corps (+50% strength)</span>; merge again for an <span class='k'>Army (+100%)</span>. The merged unit keeps the best XP, every perk from both, and any hero name. Quality over quantity.</p></div>"+
     "<div class='helpcard'><h3>Annex or Raze \uD83C\uDFDB\uFE0F</h3><p>When you capture a city, choose its fate: <span class='k'>Annex</span> it into your empire, or <span class='k'>Raze</span> it \u2014 sack a pile of gold instantly, then it burns one population per turn (paying you as it burns) until nothing remains and the land goes free. Change your mind in the city screen before the ash settles.</p></div>"+
@@ -2600,18 +2771,19 @@ function saveGame(){
   try{
     const s={map:G.map.map(t=>({t:t.t,res:t.res,owner:t.owner,ownerCity:t.ownerCity,improv:t.improv,road:t.road,ruin:t.ruin,camp:t.camp,nat:t.nat,natDiscovered:t.natDiscovered,explored:t.explored,visible:t.visible,elev:t.elev})),
       players:G.players,turn:G.turn,cur:G.cur,seed:G.seed,diff:G.diff,units:G.units.map(u=>Object.assign({},u)),cities:G.cities.map(c=>Object.assign({},c)),
-      nextUnitId:G.nextUnitId,nextCityId:G.nextCityId,era:G.era,over:G.over,cityNamePool:G.cityNamePool,wonderOwner:G.wonderOwner,mods:G.mods,nemesis:G.nemesis==null?null:G.nemesis,nemesisSlainBy:G.nemesisSlainBy==null?null:G.nemesisSlainBy};
+      nextUnitId:G.nextUnitId,nextCityId:G.nextCityId,era:G.era,over:G.over,cityNamePool:G.cityNamePool,wonderOwner:G.wonderOwner,mods:G.mods,nemesis:G.nemesis==null?null:G.nemesis,nemesisSlainBy:G.nemesisSlainBy==null?null:G.nemesisSlainBy,congress:G.congress||null};
     localStorage.setItem(SAVE_KEY,JSON.stringify(s));
   }catch(e){}
 }
 function loadGame(){
   try{const raw=localStorage.getItem(SAVE_KEY); if(!raw) return false; const s=JSON.parse(raw); if(!s||!s.map||!s.players) return false;
     RNG=mulberry32((s.seed||1)>>>0);
-    G={map:s.map,players:s.players,turn:s.turn,cur:s.cur===1?1:0,seed:s.seed,diff:s.diff||"normal",units:s.units,cities:s.cities,nextUnitId:s.nextUnitId,nextCityId:s.nextCityId,era:s.era||"Ancient",over:!!s.over,cityNamePool:s.cityNamePool||CITY_NAMES.slice(),wonderOwner:s.wonderOwner||{},mods:s.mods||{},nemesis:(s.nemesis!=null?s.nemesis:null),nemesisSlainBy:(s.nemesisSlainBy!=null?s.nemesisSlainBy:null),promoQueue:[],selUnit:null,selCity:null,anim:{shake:0,particles:[],floats:[]},log:[]};
+    G={map:s.map,players:s.players,turn:s.turn,cur:s.cur===1?1:0,seed:s.seed,diff:s.diff||"normal",units:s.units,cities:s.cities,nextUnitId:s.nextUnitId,nextCityId:s.nextCityId,era:s.era||"Ancient",over:!!s.over,cityNamePool:s.cityNamePool||CITY_NAMES.slice(),wonderOwner:s.wonderOwner||{},mods:s.mods||{},nemesis:(s.nemesis!=null?s.nemesis:null),nemesisSlainBy:(s.nemesisSlainBy!=null?s.nemesisSlainBy:null),congress:(s.congress||null),promoQueue:[],selUnit:null,selCity:null,anim:{shake:0,particles:[],floats:[]},log:[]};
     for(const u of G.units){const p=xy(u.tile); if(u.px==null){u.px=p[0]; u.py=p[1];} u.promos=u.promos||{}; if(u._promoLvl==null) u._promoLvl=unitLevel(u);}
     for(const p of G.players){if(p._goldInc==null)p._goldInc=0; if(p._sciInc==null)p._sciInc=0; if(!p.atWar)p.atWar={}; if(!p.peaceUntil)p.peaceUntil={}; if(!p._warTurns)p._warTurns={}; if(p.dipCool==null)p.dipCool=0; if(p.gpp==null)p.gpp=0; if(p.gppNeed==null)p.gppNeed=25; if(p.gpCount==null)p.gpCount=0; if(p.culture==null)p.culture=0; if(p.minor&&p.influence==null)p.influence=0; if(p.favor==null)p.favor=0; if(p.culPool==null)p.culPool=0; if(!p.policies)p.policies={};}
     for(const c of G.cities){if(c.culture==null)c.culture=0; if(c.ring==null)c.ring=1;}
     if(G.players[0]&&(G.players[0].gpp||0)>=(G.players[0].gppNeed||25)) G._gpReady=true;
+    if(!G.congress) G.congress={next:Math.max(20,G.turn+8),points:{},host:null};
     recomputeVisibility();
     const c=G.cities.find(c=>c.owner===0),u=G.units.find(u=>u.owner===0); if(c) centerOn(c.tile); else if(u) centerOn(u.tile);
     applyStartZoom();
@@ -2634,7 +2806,7 @@ function renderStartMenu(showContinue){
   html+="<button id='btn-newgame' style='width:100%;padding:14px;border-radius:12px;border:1px solid var(--line);cursor:pointer;background:var(--panel2);color:var(--ink);font-weight:800;font-size:16px;margin-top:6px;'>Begin New Empire</button>";
   html+="<button id='btn-fullscreen' style='width:100%;padding:11px;border-radius:12px;border:1px solid var(--line);cursor:pointer;background:transparent;color:var(--dim);font-weight:700;font-size:14px;margin-top:10px;'>\u26F6 Fullscreen</button>";
   html+="<div style='font-size:11px;color:var(--faint);text-align:center;margin-top:6px;'>True fullscreen works in a browser (Safari/Chrome). Inside the Claude app this switches to Focus Mode.</div>";
-  html+="<div class='hint'>Found cities, research technology, raise an army, and win by conquest, Spaceflight, 1000 Culture, or a sworn Vendetta \uD83C\uDFAF of your choosing.<br>Pinch to zoom · drag to pan · tap to act.</div>";
+  html+="<div class='hint'>Found cities, research technology, raise an army, and win by conquest, Spaceflight, 1000 Culture, hosting 3 World Congresses \uD83C\uDFDB\uFE0F, or a sworn Vendetta \uD83C\uDFAF.<br>Pinch to zoom · drag to pan · tap to act.</div>";
   c.innerHTML=html;
   const cp=$('civpick');
   for(let r=0;r<2;r++){const row=document.createElement('div'); row.className='pickrow';
