@@ -285,12 +285,12 @@ var CHAMPS = {
   gor: {
     id:'gor', name:'GOR', role:'Colossus', melee:true, accent:'#d99a5b',
     blurb:'Walking mountain. Slams, shrugs, and shields through anything.',
-    base:{ hp:720, hpReg:9, mana:320, mpReg:7, ad:62, as:0.55, range:60, armor:36, mr:32, ms:176 },
-    grow:{ hp:108, hpReg:0.85, mana:30, mpReg:0.5, ad:3.4, as:0.018, armor:4, mr:1.5 },
+    base:{ hp:780, hpReg:10, mana:320, mpReg:7, ad:68, as:0.58, range:60, armor:38, mr:34, ms:182 },
+    grow:{ hp:118, hpReg:0.95, mana:30, mpReg:0.5, ad:3.8, as:0.02, armor:4.4, mr:1.7 },
     abilities:[
       { key:'Q', name:'Quake Fist', cd:8, mana:40, range:300, desc:'Slam the ground: AoE damage + slow' },
       { key:'W', name:'Stone Skin', cd:12, mana:45, range:0, desc:'Huge shield + small heal' },
-      { key:'E', name:'Titan Leap', cd:10, mana:50, range:320, desc:'Leap; crater damages + slows' },
+      { key:'E', name:'Titan Leap', cd:9, mana:50, range:320, desc:'Leap; crater damages + slows' },
       { key:'R', name:'Avalanche', cd:80, mana:100, range:0, desc:'THREE shockwave rings + big shield' }
     ]
   }
@@ -330,7 +330,7 @@ function unlockAch(id){ if(achHas(id)){ return; }
   var nm='',i; for(i=0;i<ACH.length;i++){ if(ACH[i].id===id){ nm=ACH[i].n; } }
   banner('\ud83c\udfc5 ACHIEVEMENT: '+nm+'!', '#ffd166'); Audio.play('victory'); screenFlash('#ffd166',0.22); }
 var PASSIVES = {
-  gor: { n:'Bulwark', d:'Gor\u2019s shields are 20% stronger (built in)' },
+  gor: { n:'Bulwark', d:'Gor\u2019s shields are 25% stronger (built in)' },
   kael:   { n:'Warpath',          d:'Every 3rd hit cleaves & heals him' },
   sera:   { n:'Arcane Marks',     d:'Marked foes take extra; hits refund mana' },
   dax:    { n:'Momentum',         d:'Attacks stack speed; +10% MS at max' },
@@ -1229,29 +1229,29 @@ var ABILITY_FN = {
   gor:{
     q:function(c){ var t=aimTarget(c, 300), px, py;
       if(t){ px=t.x; py=t.y; } else { var fv=facingVec(c); px=c.x+fv.x*220; py=c.y+fv.y*220; }
-      var rk=abilityRank(c,'q'); var dmg=55+18*rk+0.5*effectiveAD(c);
-      spawnRing(px,py,c.def.accent,130); spawnRing(px,py,'#fff',80); Audio.play('cast_phys'); shake(0.2,6);
+      var rk=abilityRank(c,'q'); var dmg=70+22*rk+0.6*effectiveAD(c);
+      spawnRing(px,py,c.def.accent,150); spawnRing(px,py,'#fff',95); Audio.play('cast_phys'); shake(0.2,6);
       var arr=allUnits(),i,u;
       for(i=0;i<arr.length;i++){ u=arr[i];
-        if(unitAlive(u) && isEnemyTeam(c.team,u.team) && dist(px,py,u.x,u.y)<130+u.radius){
-          dealDamage(c,u,dmg,'physical',{showNum:u.kind==='champ'}); applySlow(u,0.4,1.5); } }
+        if(unitAlive(u) && isEnemyTeam(c.team,u.team) && dist(px,py,u.x,u.y)<150+u.radius){
+          dealDamage(c,u,dmg,'physical',{showNum:u.kind==='champ'}); applySlow(u,0.5,1.5); } }
       return true; },
     w:function(c){ var rk=abilityRank(c,'w');
-      c.shield=Math.max(c.shield, Math.round((100+0.22*c.maxHp+30*rk)*1.2));
-      healUnit(c, 0.05*c.maxHp);
+      c.shield=Math.max(c.shield, Math.round((120+0.26*c.maxHp+36*rk)*1.25));
+      healUnit(c, 0.08*c.maxHp); c.slowUntil=0; c.slowAmt=0;
       spawnRing(c.x,c.y,'#d9c9a0',70); spawnRing(c.x,c.y,c.def.accent,50);
       Audio.play('cast_magic'); floatText(c.x,c.y-c.radius-10,'STONE SKIN','#d9c9a0',12); return true; },
     e:function(c){ var d9=aimDir(c, 320); var rk=abilityRank(c,'e');
       doDash(c, Math.cos(d9), Math.sin(d9), 300, 0.15, function(){
-        var dmg=45+14*rk+0.4*effectiveAD(c);
-        spawnRing(c.x,c.y,c.def.accent,140); spawnBurst(c.x,c.y,'#d9c9a0',18,200); shake(0.35,9);
+        var dmg=60+18*rk+0.5*effectiveAD(c);
+        spawnRing(c.x,c.y,c.def.accent,160); spawnBurst(c.x,c.y,'#d9c9a0',18,200); shake(0.35,9);
         var ei,eu,ea=allUnits();
         for(ei=0;ei<ea.length;ei++){ eu=ea[ei];
-          if(unitAlive(eu) && isEnemyTeam(c.team,eu.team) && dist(c.x,c.y,eu.x,eu.y)<140+eu.radius){
-            dealDamage(c,eu,dmg,'physical',{showNum:eu.kind==='champ'}); applySlow(eu,0.5,0.8); } } });
+          if(unitAlive(eu) && isEnemyTeam(c.team,eu.team) && dist(c.x,c.y,eu.x,eu.y)<160+eu.radius){
+            dealDamage(c,eu,dmg,'physical',{showNum:eu.kind==='champ'}); applySlow(eu,0.6,1.2); } } });
       Audio.play('dash'); return true; },
-    r:function(c){ var rk=abilityRank(c,'r'); var base=0.4*effectiveAD(c);
-      var rads=[120,200,280], dmgs=[90,70,50], ri, i, u, arr=allUnits();
+    r:function(c){ var rk=abilityRank(c,'r'); var base=0.5*effectiveAD(c);
+      var rads=[120,200,280], dmgs=[120,95,70], ri, i, u, arr=allUnits();
       spawnRing(c.x,c.y,'#fff',120); spawnRing(c.x,c.y,c.def.accent,200); spawnRing(c.x,c.y,'#d9c9a0',280);
       Audio.play('ult'); shake(0.6,14);
       for(ri=0;ri<3;ri++){
@@ -1259,8 +1259,8 @@ var ABILITY_FN = {
           if(!unitAlive(u) || !isEnemyTeam(c.team,u.team)){ continue; }
           var dd=dist(c.x,c.y,u.x,u.y);
           if(dd<rads[ri]+u.radius && (ri===0 || dd>=rads[ri-1]+u.radius)){
-            dealDamage(c,u,dmgs[ri]+20*rk+base,'physical',{showNum:u.kind==='champ'}); applySlow(u,0.5,2); } } }
-      c.shield=Math.max(c.shield, Math.round((120+40*rk)*1.2));
+            dealDamage(c,u,dmgs[ri]+25*rk+base,'physical',{showNum:u.kind==='champ'}); applySlow(u,0.5,2); } } }
+      c.shield=Math.max(c.shield, Math.round((160+50*rk)*1.25)); healUnit(c, 0.10*c.maxHp);
       banner(c.isPlayer?'\u26f0 AVALANCHE!':'The Colossus unleashes an AVALANCHE!', c.def.accent);
       return true; }
   },
