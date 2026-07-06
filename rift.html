@@ -2488,8 +2488,8 @@ function update(dt){
   if(G.blueBuff>0){ G.blueBuff-=dt; if(G.blueBuff<0){ G.blueBuff=0; } }
   if(G.redBuff>0){ G.redBuff-=dt; if(G.redBuff<0){ G.redBuff=0; } }
   updateEvents(dt);
-  if(!G.wardenSpawned && G.t>300){ G.wardenSpawned=true; G.warden.alive=true; G.warden.hp=G.warden.maxHp; banner('THE WARDEN HAS AWOKEN', '#ffd166'); Audio.play('objective'); }
-  if(!G.dragonSpawned && G.t>10){ G.dragonSpawned=true;
+  if(!G.wardenSpawned && G.t>600){ G.wardenSpawned=true; G.warden.alive=true; G.warden.hp=G.warden.maxHp; banner('THE WARDEN HAS AWOKEN', '#ffd166'); Audio.play('objective'); }
+  if(!G.dragonSpawned && G.t>300){ G.dragonSpawned=true;
     var dsp=randomDragonSpot(); G.dragon.x=dsp.x; G.dragon.y=dsp.y;
     G.dragon.alive=true; G.dragon.dead=false; G.dragon.hp=G.dragon.maxHp;
     spawnRing(G.dragon.x,G.dragon.y,'#ff7a4c',120); spawnBurst(G.dragon.x,G.dragon.y,'#ff7a4c',26,240);
@@ -2720,14 +2720,17 @@ function render(){
     if(!G.duel && G.state==='play'){
       var omr9=minimapRect(); var obX9=omr9.x+omr9.w+8; var obY=omr9.y+2, obTxt=null;
       if(G.dragon){
-        if(!G.dragonSpawned && G.t<10){ obTxt='\ud83d\udc09 '+Math.ceil(10-G.t)+'s'; }
+        if(!G.dragonSpawned && G.t<300){ var drem=Math.ceil(300-G.t);
+          obTxt='\ud83d\udc09 '+Math.floor(drem/60)+':'+((drem%60)<10?'0':'')+(drem%60); }
         else if(!G.dragon.alive && G.dragon.respT>0 && G.dragon.respT<9000){ obTxt='\ud83d\udc09 '+Math.ceil(G.dragon.respT)+'s'; } }
       if(obTxt){ ctx.fillStyle='rgba(8,14,22,0.75)'; ctx.font='bold 10px sans-serif'; ctx.textAlign='left';
         var obW=ctx.measureText(obTxt).width+12;
         roundRect(obX9,obY,obW,18,5); ctx.fill();
         ctx.fillStyle='#ff9a5c'; ctx.fillText(obTxt, obX9+6, obY+13); obY+=22; }
       var wbTxt=null;
-      if(G.warden && !G.warden.alive && G.warden.respT>0 && G.warden.respT<9000){ wbTxt='\ud83d\udee1 '+Math.ceil(G.warden.respT)+'s'; }
+      if(G.warden && !G.wardenSpawned && G.t<600){ var wrem=Math.ceil(600-G.t);
+        wbTxt='\ud83d\udee1 '+Math.floor(wrem/60)+':'+((wrem%60)<10?'0':'')+(wrem%60); }
+      else if(G.warden && !G.warden.alive && G.warden.respT>0 && G.warden.respT<9000){ wbTxt='\ud83d\udee1 '+Math.ceil(G.warden.respT)+'s'; }
       if(wbTxt){ ctx.fillStyle='rgba(8,14,22,0.75)'; ctx.font='bold 10px sans-serif'; ctx.textAlign='left';
         var wbW=ctx.measureText(wbTxt).width+12;
         roundRect(obX9,obY,wbW,18,5); ctx.fill();
