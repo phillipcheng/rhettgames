@@ -371,7 +371,7 @@ const RES={
 const TECHS=[
   {id:"agri",name:"Agriculture",ico:"🌱",cost:0,prereq:[],unlock:"Start: Farms",era:"Ancient"},
   {id:"pot",name:"Pottery",ico:"🏺",cost:35,prereq:["agri"],unlock:"Granary",era:"Ancient"},
-  {id:"mine",name:"Mining",ico:"⛏️",cost:35,prereq:["agri"],unlock:"Workers can build Mines (+2 prod)",era:"Ancient"},
+  {id:"mine",name:"Mining",ico:"⛏️",cost:35,prereq:["agri"],unlock:"Mines",era:"Ancient"},
   {id:"hunt",name:"Animal Husbandry",ico:"🐎",cost:55,prereq:["agri"],unlock:"Horseman, Pasture",era:"Ancient"},
   {id:"bronze",name:"Bronze Working",ico:"🗡️",cost:55,prereq:["mine"],unlock:"Spearman, Walls",era:"Ancient"},
   {id:"arch",name:"Archery",ico:"🏹",cost:55,prereq:["agri"],unlock:"Archer",era:"Ancient"},
@@ -1744,7 +1744,6 @@ function workerBuild(unit,kind){
   const tt=G.map[unit.tile];
   if(tt.nat){toast("A natural wonder can't be improved."); return;}
   if(kind==="farm"&&["grass","plains","desert"].indexOf(tt.t)<0){toast("Farms need grass/plains/desert."); return;}
-  if(kind==="mine"&&!G.players[unit.owner].techs.mine){ if(unit.owner===0) toast("\u26CF\uFE0F Research Mining before your workers can dig mines."); return; }
   if(kind==="mine"&&["hills"].indexOf(tt.t)<0){toast("Mines need hills."); return;}
   if(kind==="pasture"&&["plains","grass"].indexOf(tt.t)<0){toast("Pasture needs plains/grass."); return;}
   if(kind==="chop"&&tt.t!=="forest"){toast("You can only chop forests."); return;}
@@ -2335,7 +2334,7 @@ function renderSelPanel(){
       if(u.type==="settler") act.appendChild(mkBtn("Found City","primary",()=>foundCity(u)));
       if(u.type==="worker"){const tt=G.map[u.tile].t;
         if(["grass","plains","desert"].indexOf(tt)>=0) act.appendChild(mkBtn("Farm","",()=>workerBuild(u,"farm")));
-        if(tt==="hills"){ if(G.players[0].techs.mine) act.appendChild(mkBtn("Mine","",()=>workerBuild(u,"mine"))); else act.appendChild(mkBtn("\u26CF\uFE0F Mine \u2014 needs Mining","",()=>toast("Research \u26CF\uFE0F Mining (35 \uD83D\uDD2C) to unlock mines."))); }
+        if(tt==="hills") act.appendChild(mkBtn("Mine","",()=>workerBuild(u,"mine")));
         if(tt==="forest") act.appendChild(mkBtn("Chop","",()=>workerBuild(u,"chop")));
         if(["plains","grass"].indexOf(tt)>=0&&G.players[0].techs.hunt) act.appendChild(mkBtn("Pasture","",()=>workerBuild(u,"pasture")));
         if(G.players[0].techs.wheel) act.appendChild(mkBtn("Road","",()=>workerBuild(u,"road")));
