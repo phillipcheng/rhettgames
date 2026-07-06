@@ -1018,7 +1018,7 @@ function flushGP(){
     {k:"sci",ico:"\uD83E\uDDEA",nm:"Great Scientist",ds:p.researching?("Instantly completes "+techById[p.researching].name):"Grants a free technology"},
     {k:"eng",ico:"\uD83C\uDFD7\uFE0F",nm:"Great Engineer",ds:"Instantly finishes your best city's production"},
     {k:"mer",ico:"\uD83D\uDCB0",nm:"Great Merchant",ds:"+"+gpMerchantGold()+" gold to your treasury"},
-    {k:"gen",ico:"\uD83C\uDF96\uFE0F",nm:"Great General",ds:"A legendary veteran unit appears at your capital"}
+    {k:"gen",ico:"\uD83C\uDF96\uFE0F",nm:"Great General",ds:"A \u2B50 Lv4 named legend at your capital \u2014 allies beside them +15%"}
   ];
   let html="<div class='promo-card'><div class='promo-hd'>\u2728 A Great Person emerges!</div><div class='promo-sub'>Your civilization's legacy grows \u2014 choose who steps forward</div><div class='promo-opts'>";
   for(const o of opts) html+="<button class='promo-opt' data-g='"+o.k+"'><div class='po-ico'>"+o.ico+"</div><div class='po-nm'>"+o.nm+"</div><div class='po-ds'>"+o.ds+"</div></button>";
@@ -1043,7 +1043,7 @@ function pickGP(k){
     const cap=G.cities.find(c=>c.owner===0);
     if(cap){ const avail=availableBuilds(cap), m=bestMilitary(avail)||"warrior"; let spot=null;
       for(const ni of neighIdx(cap.tile)){ const tt=G.map[ni]; if(TERR[tt.t].land&&!TERR[tt.t].block&&!unitAt(ni)&&!cityAt(ni)){spot=ni;break;} }
-      if(spot!=null){ const nu=spawnUnit(spot,m,0); nu.xp=6; nu._promoLvl=unitLevel(nu); nu.promos={atk:true,def:true}; fx_found(spot); toast("\uD83C\uDF96\uFE0F A legendary "+UNITS[m].name+" answers the call!"); }
+      if(spot!=null){ const nu=spawnUnit(spot,m,0); nu.xp=12; nu._promoLvl=unitLevel(nu); nu.promos={atk:true,def:true,move:true}; fx_found(spot); toast("\uD83C\uDF96\uFE0F A legendary "+UNITS[m].name+" answers the call!"); checkHero(nu); }
       else { p.gold+=gpMerchantGold(); toast("No room to muster \u2014 the general endows "+gpMerchantGold()+" gold."); }
     } else { p.gold+=gpMerchantGold(); }
   }
