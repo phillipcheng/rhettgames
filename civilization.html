@@ -414,6 +414,8 @@ const UNITS={
   arty:{name:"Artillery",ico:"💥",atk:34,def:10,hp:36,move:1,range:2,cost:66,tech:"indus",ranged:true,siege:true},
   tank:{name:"Tank",ico:"🛡️",atk:40,def:30,hp:54,move:3,range:1,cost:78,tech:"indus",mounted:true}
 };
+UNITS.nuke={name:"Atomic Bomb",ico:"\u2622\uFE0F",atk:0,def:1,hp:12,move:4,cost:120,tech:"indus",civilian:true};
+UNITS.spy={name:"Spy",ico:"\uD83D\uDD75\uFE0F",atk:0,def:1,hp:10,move:3,cost:60,tech:"bank",civilian:true};
 UNITS.missionary={name:"Missionary",ico:"\uD83D\uDD4A\uFE0F",atk:0,def:1,hp:10,move:3,cost:40,tech:"write",civilian:true};
 UNITS.galley={name:"Galley",ico:"\u26F5",atk:6,def:5,hp:30,move:3,range:0,cost:32,tech:"pot",naval:true};
 UNITS.frigate={name:"Frigate",ico:"\uD83D\uDEA2",atk:13,def:8,hp:36,move:4,range:2,cost:70,tech:"gunp",naval:true};
@@ -443,6 +445,7 @@ const BUILDINGS={
 };
 const WONDERS={
   pyramids:{name:"The Pyramids",ico:"🔺",cost:140,tech:"mine",desc:"+6 production in this city",prod:6},
+  manhattan:{name:"Manhattan Project",ico:"\u2622\uFE0F",cost:230,tech:"indus",desc:"Unlocks the Atomic Bomb \u2014 for its owner alone"},
   greatlib:{name:"Great Library",ico:"📖",cost:160,tech:"write",desc:"Reveals a free technology; +4 science here",sci:4,freeTech:true},
   hanging:{name:"Hanging Gardens",ico:"🌺",cost:150,tech:"pot",desc:"+2 food in ALL your cities",empire:{food:2}},
   colossus:{name:"Colossus",ico:"🗽",cost:140,tech:"curr",desc:"+6 gold in this city",gold:6},
@@ -741,7 +744,7 @@ function wonderTaken(id){return !!(G.wonderOwner&&G.wonderOwner[id]!=null);}
 function cityCoastal(c){ for(const ni of neighIdx(c.tile)){ if(!TERR[G.map[ni].t].land) return true; } return false; }
 function availableBuilds(city){
   const p=G.players[city.owner],out=[];
-  for(const k in UNITS){const u=UNITS[k]; if(u.tech&&!p.techs[u.tech])continue; if(u.naval&&!cityCoastal(city))continue; if(u.uniq&&(!p.uu||p.uu.id!==k))continue; if(p.uu&&p.uu.base===k)continue; out.push({kind:"unit",id:k});}
+  for(const k in UNITS){const u=UNITS[k]; if(u.tech&&!p.techs[u.tech])continue; if(u.naval&&!cityCoastal(city))continue; if(k==="nuke"&&(city.owner!==0||!G.wonderOwner||G.wonderOwner.manhattan!==0))continue; if(k==="spy"&&city.owner!==0)continue; if(u.uniq&&(!p.uu||p.uu.id!==k))continue; if(p.uu&&p.uu.base===k)continue; out.push({kind:"unit",id:k});}
   for(const k in BUILDINGS){const b=BUILDINGS[k]; if(b.tech&&!p.techs[b.tech])continue; if(city.buildings[k])continue; out.push({kind:"building",id:k});}
   for(const k in WONDERS){const w=WONDERS[k]; if(w.tech&&!p.techs[w.tech])continue; if(city.buildings[k]||wonderTaken(k))continue; out.push({kind:"wonder",id:k});}
   return out;
@@ -921,6 +924,7 @@ function tryMove(unit,target){
   const R=reachable(unit);
   if(R.rem.has(target)){
     const path=pathTo(R.prev,target);
+    G._undo={id:unit.id,from:unit.tile,mp:unit.mp,fortified:unit.fortified,embarked:!!unit.embarked,turn:G.turn};
     animateMove(unit,path,()=>{unit.mp=R.rem.get(target); unit.moved=true; unit.fortified=0; afterUnitAct(unit);});
   } else {
     const ut=xy(unit.tile),tt=xy(target); let best=null,bd=cheby(ut[0],ut[1],tt[0],tt[1]);
@@ -991,6 +995,7 @@ function grantNatWonder(unit,key){
 }
 function onEnterTile(unit,i){
   if(!UNITS[unit.type].naval) unit.embarked=!TERR[G.map[i].t].land;
+  if(unit.owner===0&&(G.map[i].ruin||G.map[i].camp)) G._undo=null;
   const t=G.map[i]; if(!t) return;
   if(t.ruin&&unit.owner>=0){ t.ruin=false; grantRuin(unit); }
   if(t.nat&&!t.natDiscovered&&unit.owner>=0){ t.natDiscovered=true; grantNatWonder(unit,t.nat); }
@@ -1527,6 +1532,88 @@ function startTrade(u,city){
   if(G.selUnit===u.id) renderSelPanel();
   updateHUD(); saveGame();
 }
+function spyTargetCity(u){
+  if(u.type!=="spy") return null;
+  const chk=c=>c&&c.owner>0&&G.players[c.owner]&&!G.players[c.owner].minor&&!G.players[c.owner].defeated;
+  const here=cityAt(u.tile); if(chk(here)) return here;
+  for(const ni of neighIdx(u.tile)){ const c=cityAt(ni); if(chk(c)) return c; }
+  return null;
+}
+function stealableTechs(qid){
+  const q=G.players[qid],p0=G.players[0];
+  return Object.keys(q.techs).filter(t=>q.techs[t]&&!p0.techs[t]);
+}
+function spyOp(u,kind){
+  const city=spyTargetCity(u); if(!city) return;
+  const q=G.players[city.owner],p0=G.players[0];
+  if((u.spyCool||0)>G.turn){ toast("Your spy is lying low ("+(u.spyCool-G.turn)+" turns)."); return; }
+  if(RNG()<0.7){
+    if(kind==="tech"){
+      const opts=stealableTechs(city.owner);
+      if(!opts.length){ toast(q.civ+" knows nothing you don't."); return; }
+      const t=opts[rint(opts.length)]; p0.techs[t]=true;
+      const tn=(TECHS.find(x=>x.id===t)||{name:t}).name;
+      toast("\uD83D\uDD75\uFE0F Stolen from "+city.name+": "+tn+"!");
+    } else {
+      const loot=Math.min(80,Math.round((q.gold||0)*0.3));
+      q.gold=Math.max(0,(q.gold||0)-loot); p0.gold+=loot;
+      toast("\uD83D\uDD75\uFE0F Siphoned "+loot+" gold from "+q.civ+"'s treasury!");
+    }
+    u.spyCool=G.turn+6; u.mp=0; u.moved=true;
+    try{sfx("capture");}catch(e){}
+  } else {
+    removeUnit(u); q.favor=(q.favor||0)-2;
+    toast("\uD83D\uDD75\uFE0F Your spy was CAUGHT in "+city.name+" \u2014 international scandal! ("+q.civ+" \u22122 favor)");
+    try{sfx("hit");}catch(e){} flashScreen("#e8503f",0.3);
+  }
+  if(G.selUnit===u.id) renderSelPanel(); updateHUD(); saveGame();
+}
+function nukeTargetCity(u){
+  if(u.type!=="nuke") return null;
+  const up=xy(u.tile);
+  let best=null,bd=99;
+  for(const c of G.cities){
+    if(c.owner===0) continue;
+    const cp=xy(c.tile),d=cheby(up[0],up[1],cp[0],cp[1]);
+    if(d<=2&&d<bd){bd=d;best=c;}
+  }
+  return best;
+}
+function detonate(u){
+  const city=nukeTargetCity(u); if(!city) return;
+  if(!confirm("\u2622\uFE0F Unleash nuclear fire on "+city.name+"? EVERYTHING within 2 tiles is vaporized, the land is scorched, and every nation on earth will hate you (\u22122 favor with all).")) return;
+  const tp=xy(city.tile);
+  if(city.owner>=0&&!isAtWar(0,city.owner)) declareWar(0,city.owner);
+  for(const v of G.units.slice()){
+    if(v===u) continue;
+    const vp=xy(v.tile);
+    if(cheby(vp[0],vp[1],tp[0],tp[1])<=2){ fx_die(v.tile); removeUnit(v); }
+  }
+  city.hp=1; city.pop=Math.max(1,city.pop-3); city.buildProg=0;
+  for(let i=0;i<G.map.length;i++){
+    const p=xy(i);
+    if(cheby(p[0],p[1],tp[0],tp[1])<=2){ const t=G.map[i]; t.improv=null; t.road=false; }
+  }
+  for(const q of G.players){
+    if(q.id<=0||q.defeated) continue;
+    if(q.minor) q.influence=Math.max(0,(q.influence||0)-20);
+    else q.favor=(q.favor||0)-2;
+  }
+  removeUnit(u);
+  shake(24); flashScreen("#ffffff",0.85); try{sfx("attack");}catch(e){}
+  showEvent("\u2601\uFE0F","NUCLEAR FIRE",city.name+" vanishes beneath a mushroom cloud. Its defenses are ash, its people flee, the land is scorched bare \u2014 and every nation recoils in horror.",false);
+  recomputeVisibility(); updateHUD(); saveGame(); checkVictory();
+}
+function undoMove(u){
+  const d=G._undo;
+  if(!d||d.id!==u.id||d.turn!==G.turn||u.attacked||u.work||u.trading||u.train) return;
+  u.tile=d.from; const p=xy(d.from); u.px=p[0]; u.py=p[1];
+  u.mp=d.mp; u.moved=false; u.fortified=d.fortified; u.embarked=d.embarked;
+  G._undo=null;
+  try{sfx("click");}catch(e){}
+  toast("\u21A9\uFE0F Move undone.");
+  recomputeVisibility(); if(G.selUnit===u.id) renderSelPanel(); updateHUD();
+}
 function cancelTrade(u,msg){
   if(!u.trading) return; u.trading=null;
   if(u.owner===0&&msg) toast(msg);
@@ -1939,6 +2026,12 @@ function runBarbarians(){
 function aiCombatMult(owner){const d=DIFFS[G.diff]||{}; return owner===0?(d.playerPow||1.2):(owner<0?0.85:(d.aiPow!=null?d.aiPow:1));}
 function captureUnit(att,victim,i,ranged){
   const wasPlayers=(victim.owner===0), oldName=UNITS[victim.type].name;
+  if(victim.type==="nuke"||victim.type==="spy"){
+    removeUnit(victim); fx_die(i);
+    if(att.owner===0){ toast("Enemy "+oldName+" eliminated."); }
+    else if(wasPlayers){ toast("\u26A0\uFE0F Your "+oldName+" was captured and "+(victim.type==="nuke"?"dismantled!":"executed!")); }
+    updateHUD(); saveGame(); return;
+  }
   if(victim.type==="caravan"){
     const loot=60; removeUnit(victim); fx_die(i);
     const ap=G.players[att.owner]; if(ap) ap.gold+=loot;
@@ -2610,6 +2703,9 @@ function renderSelPanel(){
         if(G.players[0].techs.wheel) act.appendChild(mkBtn("Road","",()=>workerBuild(u,"road")));
         if(u.work) act.appendChild(mkBtn("Cancel","danger",()=>{u.work=null; renderSelPanel(); saveGame();}));
       }
+      if(G._undo&&G._undo.id===u.id&&G._undo.turn===G.turn&&!u.attacked&&!u.work&&!u.trading&&!u.train) act.appendChild(mkBtn("\u21A9\uFE0F Undo Move","",()=>undoMove(u)));
+      if(u.type==="nuke"){ const _nt=nukeTargetCity(u); if(_nt) act.appendChild(mkBtn("\u2622\uFE0F DETONATE \u2014 "+_nt.name,"danger",()=>detonate(u))); }
+      if(u.type==="spy"){ const _st=spyTargetCity(u); if(_st&&(u.spyCool||0)<=G.turn){ if(stealableTechs(_st.owner).length) act.appendChild(mkBtn("\uD83D\uDD2C Steal Technology","primary",()=>spyOp(u,"tech"))); act.appendChild(mkBtn("\uD83D\uDCB0 Siphon Gold","",()=>spyOp(u,"gold"))); } else if(_st){ act.appendChild(mkBtn("\uD83D\uDD75\uFE0F Lying low ("+((u.spyCool||0)-G.turn)+")","",()=>{})); } }
       if(u.type==="missionary"){ const _sc=spreadTargetCity(u); if(_sc) act.appendChild(mkBtn("\uD83D\uDD4A\uFE0F Spread Faith \u2014 "+_sc.name,"primary",()=>spreadFaith(u,_sc))); }
       if(u.type==="scout") act.appendChild(mkBtn(u.auto?"\uD83E\uDD16 Auto-Explore \u2713":"\uD83E\uDD16 Auto-Explore",u.auto?"primary":"",()=>{u.auto=!u.auto; toast(u.auto?"Scout will wander the fog by itself.":"Manual control restored."); if(u.auto&&!u.moved) autoExplore(u); renderSelPanel(); saveGame();}));
       if(u.type==="caravan"&&!u.trading){ const _tc=tradeTargetCity(u); if(_tc) act.appendChild(mkBtn("\uD83D\uDC2A Trade with "+_tc.name,"primary",()=>startTrade(u,_tc))); }
@@ -2832,6 +2928,9 @@ function renderHelp(){
     "<div class='helpcard'><h3>Units</h3><p>Workers build farms, mines, pastures and roads, and can <span class='k'>chop forests</span> — clearing a forest to grassland and rushing 20 production to your nearest city. Military units have ⚔attack and 🛡defense; ranged units (Archer, Catapult) strike without being hit back. Spearmen counter mounted units.</p></div>"+
     "<div class='helpcard'><h3>Ancient Ruins 🗿</h3><p>Glowing ruins dot the map. Move any unit onto one to claim a reward — gold, a free technology, a map of the region, fresh warriors, or a battle‑hardened unit. Explore to find them first.</p></div>"+
     "<div class='helpcard'><h3>Barbarians ☠️</h3><p>Raiders emerge from the wilderness and attack nearby units and cities. They can't capture cities, but they'll pillage and kill — keep a defender close to your borders and patrol with scouts.</p></div>"+
+    "<div class='helpcard'><h3>The Bomb \u2622\uFE0F</h3><p>Race for the <span class='k'>Manhattan Project</span> wonder (Industrialization) \u2014 only its owner may ever build the <span class='k'>Atomic Bomb</span>. Walk one within 2 tiles of an enemy city and <span class='k'>DETONATE</span>: everything in the blast dies, the city's defenses turn to ash (\u22123 pop), and the land is scorched bare. Every nation loses 2 favor with you \u2014 the world never forgets. If a rival wins the race, at least no bombs will ever fall.</p></div>"+
+    "<div class='helpcard'><h3>Espionage \uD83D\uDD75\uFE0F</h3><p>Banking unlocks the <span class='k'>Spy</span>. Slip one beside any rival city and choose: <span class='k'>Steal Technology</span> (a random tech they know and you don't) or <span class='k'>Siphon Gold</span> (30% of their treasury, up to 80g). 70% success, then 6 turns lying low \u2014 but get <span class='k'>caught</span> (30%) and the spy dies in a scandal costing 2 favor.</p></div>"+
+    "<div class='helpcard'><h3>Undo Move \u21A9\uFE0F</h3><p>Fat-fingered a move? Select the unit and tap <span class='k'>Undo Move</span> \u2014 it returns exactly where it stood with its movement refunded. Works until the unit acts, and never after grabbing ruins or camps (no take-backs on treasure).</p></div>"+
     "<div class='helpcard'><h3>Naval Warfare \u26F5</h3><p>Coastal cities build <span class='k'>Galleys</span> (Pottery) and ranged <span class='k'>Frigates</span> (Gunpowder) that rule the waves and bombard the shore. Your land units can <span class='k'>embark</span>: simply move onto water \uD83D\uDEF6 \u2014 they sail slowly, cannot fight, and defend poorly, so escort them. Settle islands, raid coasts, own the ocean.</p></div>"+
     "<div class='helpcard'><h3>Religion \u26EA</h3><p>Your first <span class='k'>Temple</span> founds a Religion \u2014 choose a belief: <span class='k'>God of War</span> (+15% strength near your cities), <span class='k'>Harvest Goddess</span> (farms +1 food), or <span class='k'>Sacred Forge</span> (mines +1 prod). Every faithful city pays: your own <span class='k'>+1 culture/turn</span>, foreign ones <span class='k'>+2 gold/turn</span>. Build <span class='k'>Missionaries</span> (Writing) and spread the word \u2014 converting a city-state also earns +10 influence.</p></div>"+
     "<div class='helpcard'><h3>The Horde \uD83D\uDC79</h3><p>Around turn 34 the barbarian tribes unite under a named <span class='k'>Warlord</span> \u2B50 who raids every empire and spawns raiders endlessly. Slay him for <span class='k'>+150 gold and +1 favor with every nation</span> \u2014 the world remembers its savior. Ignore him at your peril.</p></div>"+
