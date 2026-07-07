@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RHETT GAMES — Arcade</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { background:#070b12; color:#eaf2ff; font-family:-apple-system, "Segoe UI", sans-serif; min-height:100vh; padding:28px 16px 60px; }
+  .bg { position:fixed; inset:0; background:radial-gradient(1200px 600px at 50% -10%, rgba(42,108,255,0.18), transparent 60%), radial-gradient(800px 500px at 90% 110%, rgba(255,110,80,0.10), transparent 60%); pointer-events:none; }
+  h1 { text-align:center; font-size:30px; letter-spacing:4px; margin-bottom:4px; }
+  h1 .r { color:#4cb8ff; } h1 .g { color:#ffd166; }
+  .sub { text-align:center; color:#7f95b5; font-size:12px; letter-spacing:2px; margin-bottom:26px; text-transform:uppercase; }
+  .grid { max-width:520px; margin:0 auto; display:grid; gap:14px; }
+  a.card { display:flex; align-items:center; gap:14px; text-decoration:none; color:inherit;
+    background:linear-gradient(160deg, rgba(22,30,44,0.95), rgba(14,19,30,0.95));
+    border:1px solid rgba(90,120,160,0.25); border-radius:16px; padding:16px 18px;
+    transition:transform .12s ease, border-color .12s ease; }
+  a.card:active { transform:scale(0.97); border-color:rgba(127,210,255,0.7); }
+  .ico { font-size:34px; width:52px; height:52px; display:flex; align-items:center; justify-content:center;
+    background:rgba(8,14,24,0.8); border-radius:12px; border:1px solid rgba(255,255,255,0.06); flex:0 0 52px; }
+  .meta { flex:1; min-width:0; }
+  .name { font-weight:800; font-size:16px; letter-spacing:1px; }
+  .desc { color:#8fa4c4; font-size:12px; margin-top:3px; line-height:1.35; }
+  .tag { font-size:9px; font-weight:700; letter-spacing:1px; padding:3px 7px; border-radius:6px; flex:0 0 auto; }
+  .tag.new { background:rgba(76,184,255,0.15); color:#7fd2ff; border:1px solid rgba(76,184,255,0.4); }
+  .foot { text-align:center; color:#5a6d8c; font-size:10px; margin-top:34px; letter-spacing:1px; }
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<h1><span class="r">RHETT</span> <span class="g">GAMES</span></h1>
+<div class="sub">Tap a game to play</div>
+<div class="grid">
+  <a class="card" href="rift.html">
+    <div class="ico">&#9876;&#65039;</div>
+    <div class="meta"><div class="name">RIFT: Siege the Nexus</div>
+    <div class="desc">MOBA — 9 champions, boss raids, duels, mastery &amp; more</div></div>
+    <div class="tag new">UPDATED</div>
+  </a>
+  <a class="card" href="civilization.html">
+    <div class="ico">&#127963;&#65039;</div>
+    <div class="meta"><div class="name">EMPIRE: Rise of Civilization</div>
+    <div class="desc">4X strategy — diplomacy, wonders, culture &amp; conquest</div></div>
+  </a>
+  <a class="card" href="demon-slayer.html">
+    <div class="ico">&#128481;&#65039;</div>
+    <div class="meta"><div class="name">Demon Slayer</div>
+    <div class="desc">Action — breathe, slash, survive the demons</div></div>
+  </a>
+  <a class="card" href="gungame.html">
+    <div class="ico">&#128299;</div>
+    <div class="meta"><div class="name">Gun Game</div>
+    <div class="desc">Arena shooter — climb the weapon ladder</div></div>
+  </a>
+  <a class="card" href="neon_survivor.html">
+    <div class="ico">&#128126;</div>
+    <div class="meta"><div class="name">Neon Survivor</div>
+    <div class="desc">Wave survival — glow hard, die never</div></div>
+  </a>
+  <a class="card" href="disaster_runner.html">
+    <div class="ico">&#127755;</div>
+    <div class="meta"><div class="name">Disaster Runner</div>
+    <div class="desc">Endless runner — outrun the apocalypse</div></div>
+  </a>
+</div>
+<div class="foot">phillipcheng.github.io/rhettgames</div>
+</body>
+</html>
