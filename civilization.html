@@ -186,6 +186,7 @@
   #gppick{position:fixed;inset:0;z-index:64;display:none;align-items:center;justify-content:center;background:rgba(4,7,11,0.7);padding:16px;}
   #citychoice{position:fixed;inset:0;z-index:65;display:none;align-items:center;justify-content:center;background:rgba(4,7,11,0.7);padding:16px;}
   #congress{position:fixed;inset:0;z-index:66;display:none;align-items:center;justify-content:center;background:rgba(4,7,11,0.72);padding:16px;}
+  #faithpick{position:fixed;inset:0;z-index:66;display:none;align-items:center;justify-content:center;background:rgba(4,7,11,0.72);padding:16px;}
   .diprow{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);margin-bottom:10px;}
   .dip-em{width:42px;height:42px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:22px;border:2px solid;}
   .dip-main{flex:1;min-width:0;}
@@ -324,6 +325,7 @@
   <div id="gppick"></div>
   <div id="citychoice"></div>
   <div id="congress"></div>
+  <div id="faithpick"></div>
   <div id="promo"></div>
   <div id="eventpop"></div>
   <div id="banner"><div class="inner">
@@ -412,6 +414,9 @@ const UNITS={
   arty:{name:"Artillery",ico:"💥",atk:34,def:10,hp:36,move:1,range:2,cost:66,tech:"indus",ranged:true,siege:true},
   tank:{name:"Tank",ico:"🛡️",atk:40,def:30,hp:54,move:3,range:1,cost:78,tech:"indus",mounted:true}
 };
+UNITS.missionary={name:"Missionary",ico:"\uD83D\uDD4A\uFE0F",atk:0,def:1,hp:10,move:3,cost:40,tech:"write",civilian:true};
+UNITS.galley={name:"Galley",ico:"\u26F5",atk:6,def:5,hp:30,move:3,range:0,cost:32,tech:"pot",naval:true};
+UNITS.frigate={name:"Frigate",ico:"\uD83D\uDEA2",atk:13,def:8,hp:36,move:4,range:2,cost:70,tech:"gunp",naval:true};
 UNITS.caravan={name:"Caravan",ico:"🐪",atk:0,def:1,hp:10,move:2,range:0,cost:30,tech:"curr",civilian:true,role:"trade"};
 UNITS.legion=Object.assign({},UNITS.sword,{name:"Legion",ico:"🦅",atk:UNITS.sword.atk+2,def:UNITS.sword.def+1,uniq:true});
 UNITS.hoplite=Object.assign({},UNITS.spear,{name:"Hoplite",ico:"🏛️",def:UNITS.spear.def+2,uniq:true});
@@ -510,7 +515,7 @@ function newGame(seed,civIndex,diffKey,rivals,mods){
     revealAround(s,k,3);
   }
   placeCityStates(3);
-  G.nemesis=null; G.nemesisSlainBy=null; G.congress={next:20,points:{},host:null};
+  G.nemesis=null; G.nemesisSlainBy=null; G.congress={next:20,points:{},host:null}; G.religion={belief:null,name:null}; G.horde={up:false,slain:false};
   if(G.diff==="chill") G.players[0].gold+=40;
   recomputeVisibility(); centerOn(starts[0]); applyStartZoom(); saveGame();
   return G;
@@ -681,8 +686,8 @@ function tileYield(i){
   const tt=G.map[i],base=TERR[tt.t]; let f=base.food,p=base.prod,g=base.gold;
   if(tt.res){const r=RES[tt.res]; f+=r.food; p+=r.prod; g+=r.gold;}
   if(tt.nat&&NATWONDERS[tt.nat]){const nw=NATWONDERS[tt.nat]; f+=nw.f; p+=nw.p; g+=nw.g;}
-  if(tt.improv==="farm") f+=2;
-  if(tt.improv==="mine") p+=2;
+  if(tt.improv==="farm") f+=2+((tt.owner===0&&hasBelief("harvest"))?1:0);
+  if(tt.improv==="mine") p+=2+((tt.owner===0&&hasBelief("forge"))?1:0);
   if(tt.improv==="pasture"){p+=1; f+=1;}
   return {f,p,g};
 }
@@ -733,17 +738,22 @@ function buildName(item){return item.kind==="unit"?UNITS[item.id].name:item.kind
 function buildIco(item){return item.kind==="unit"?UNITS[item.id].ico:item.kind==="building"?BUILDINGS[item.id].ico:item.kind==="wonder"?WONDERS[item.id].ico:item.kind==="none"?"⏸️":"?";}
 function isCoastal(city){for(const ni of neighIdx(city.tile)){const t=G.map[ni].t; if(t==="coast"||t==="ocean") return true;} return false;}
 function wonderTaken(id){return !!(G.wonderOwner&&G.wonderOwner[id]!=null);}
+function cityCoastal(c){ for(const ni of neighIdx(c.tile)){ if(!TERR[G.map[ni].t].land) return true; } return false; }
 function availableBuilds(city){
   const p=G.players[city.owner],out=[];
-  for(const k in UNITS){const u=UNITS[k]; if(u.tech&&!p.techs[u.tech])continue; if(u.uniq&&(!p.uu||p.uu.id!==k))continue; if(p.uu&&p.uu.base===k)continue; out.push({kind:"unit",id:k});}
+  for(const k in UNITS){const u=UNITS[k]; if(u.tech&&!p.techs[u.tech])continue; if(u.naval&&!cityCoastal(city))continue; if(u.uniq&&(!p.uu||p.uu.id!==k))continue; if(p.uu&&p.uu.base===k)continue; out.push({kind:"unit",id:k});}
   for(const k in BUILDINGS){const b=BUILDINGS[k]; if(b.tech&&!p.techs[b.tech])continue; if(city.buildings[k])continue; out.push({kind:"building",id:k});}
   for(const k in WONDERS){const w=WONDERS[k]; if(w.tech&&!p.techs[w.tech])continue; if(city.buildings[k]||wonderTaken(k))continue; out.push({kind:"wonder",id:k});}
   return out;
 }
 
 /* ---- pathfinding ---- */
-function moveCost(toIndex){
-  const tt=G.map[toIndex],base=TERR[tt.t]; if(base.block) return 99; if(!base.land) return 99; if(tt.road) return 1; return base.move;
+function moveCost(toIndex,u){
+  const tt=G.map[toIndex],base=TERR[tt.t]; if(base.block) return 99;
+  const nav=u&&UNITS[u.type]&&UNITS[u.type].naval;
+  if(nav) return base.land?99:1;
+  if(!base.land) return (u&&u.owner===0)?2:99; // land units embark (player only)
+  if(tt.road) return 1; return base.move;
 }
 function reachable(unit){
   const start=unit.tile,startMP=unit.mp; const rem=new Map(),prev=new Map(); rem.set(start,startMP);
@@ -758,7 +768,7 @@ function reachable(unit){
       if(oc) continue;                              // city tiles are never enterable
       if(occ&&occ.owner!==unit.owner) continue;     // enemy unit
       if(occ&&occ.owner===unit.owner) continue;     // friendly unit
-      const cst=moveCost(ni); if(cst>=99) continue;
+      const cst=moveCost(ni,unit); if(cst>=99) continue;
       let nm=curMP-cst; if(nm<0) nm=0;
       if(nm>(rem.has(ni)?rem.get(ni):-1)){rem.set(ni,nm); prev.set(ni,cur); open.push([ni,nm]);}
     }
@@ -936,6 +946,8 @@ function unitStrength(unit,attacking){
   if(attacking&&G.wonderOwner&&G.wonderOwner.suntzu===unit.owner) s*=1.1;
   if(unit.owner===0&&hasPol("discipline")) s*=1.1;
   if(unit.rank===1) s*=1.5; else if(unit.rank===2) s*=2;
+  if(unit.embarked) s*=0.4;
+  if(unit.owner===0&&hasBelief("war")){ const up=xy(unit.tile); for(const c of G.cities){ if(c.owner!==0) continue; const cp=xy(c.tile); if(cheby(up[0],up[1],cp[0],cp[1])<=3){ s*=1.15; break; } } }
   if(unit.owner>=0){ for(const _ni of neighIdx(unit.tile)){ const _a=unitAt(_ni); if(_a&&_a.owner===unit.owner&&_a.hero&&_a.id!==unit.id){ s*=(unit.owner===0?1.15:1.08); break; } } }
   return Math.max(1,s);
 }
@@ -978,6 +990,7 @@ function grantNatWonder(unit,key){
   if(me){ if(typeof showEvent==="function"){showEvent(nw.ico,"Natural Wonder: "+nw.name,msg,true);} else {toast(nw.name+" discovered! "+msg);} fx_found(unit.tile); try{sfx("found");}catch(e){} }
 }
 function onEnterTile(unit,i){
+  if(!UNITS[unit.type].naval) unit.embarked=!TERR[G.map[i].t].land;
   const t=G.map[i]; if(!t) return;
   if(t.ruin&&unit.owner>=0){ t.ruin=false; grantRuin(unit); }
   if(t.nat&&!t.natDiscovered&&unit.owner>=0){ t.natDiscovered=true; grantNatWonder(unit,t.nat); }
@@ -1052,6 +1065,102 @@ function pickGP(k){
   fxAfterGP(); saveGame(); flushGP();
 }
 function fxAfterGP(){ updateHUD(); if(G.selCity!=null){const c=G.cities.find(x=>x.id===G.selCity); if(c&&isOpen("cityscreen")) renderCityScreen(c);} }
+/* ---- the barbarian horde ---- */
+const WARLORD_NAMES=["Gruk the Devourer","Skarn Bloodmaw","Vorga the Endless","Thok Skullsplitter","Urzag the Storm"];
+function stepHorde(){
+  if(!G.horde) G.horde={up:false,slain:false};
+  const p0=G.players[0]; if(!p0||p0.defeated||G.over) return;
+  if(!G.horde.up&&G.turn>=34){
+    // rise at the camp farthest from your capital (or a far wild tile)
+    const cap=playerCapital(); const ap=cap?xy(cap.tile):xy(playerAnchorTile());
+    let best=null,bd=-1;
+    for(let i=0;i<G.map.length;i++){
+      const t=G.map[i];
+      if(!TERR[t.t].land||TERR[t.t].block||t.owner!==-1||cityAt(i)||unitAt(i)) continue;
+      const p=xy(i),d=cheby(ap[0],ap[1],p[0],p[1]);
+      if((t.camp?d+8:d)>bd){bd=(t.camp?d+8:d);best=i;}
+    }
+    if(best==null) return;
+    G.map[best].camp=true;
+    const w2=spawnUnit(best,"sword",-1);
+    w2.hero=WARLORD_NAMES[rint(WARLORD_NAMES.length)];
+    w2.warlord=true; w2.xp=12; w2._promoLvl=unitLevel(w2);
+    w2.maxhp=Math.round(w2.maxhp*1.6); w2.hp=w2.maxhp;
+    let esc=0;
+    for(const ni of neighIdx(best)){ if(esc>=3) break; const tt=G.map[ni]; if(TERR[tt.t].land&&!TERR[tt.t].block&&!unitAt(ni)&&!cityAt(ni)){ spawnUnit(ni,esc%2?"spear":"warrior",-1); esc++; } }
+    G.horde={up:true,slain:false,tile:best,next:G.turn+8};
+    showEvent("\uD83D\uDC79","THE HORDE RISES","Barbarian tribes unite under \u2B50 "+w2.hero+"! The Horde will raid every empire without mercy. Slay the Warlord for <b>+150 gold</b> and <b>+1 favor with every nation</b> \u2014 the world will remember its savior.",false);
+    try{sfx("attack");}catch(e){} shake(8);
+    return;
+  }
+  if(G.horde.up&&!G.horde.slain&&G.turn>=(G.horde.next||0)){
+    G.horde.next=G.turn+8;
+    const wl=G.units.find(u=>u.warlord);
+    if(!wl){ G.horde.slain=true; return; }
+    for(const ni of neighIdx(wl.tile)){ const tt=G.map[ni]; if(TERR[tt.t].land&&!TERR[tt.t].block&&!unitAt(ni)&&!cityAt(ni)){ spawnUnit(ni,barbType(),-1); break; } }
+  }
+}
+function warlordSlain(byPlayer){
+  if(!G.horde||G.horde.slain) return;
+  G.horde.slain=true;
+  if(byPlayer){
+    const p0=G.players[0]; p0.gold+=150;
+    for(const q of G.players){ if(q.id>0&&!q.minor&&!q.defeated) q.favor=(q.favor||0)+1; }
+    showEvent("\uD83C\uDFC6","WARLORD SLAIN","The Horde's master falls to YOUR blade! <b>+150 gold</b>, and every empire honors the deed: <b>+1 favor with all nations</b>.",true);
+    try{sfx("victory");}catch(e){}
+  } else {
+    toast("\uD83D\uDC79 The Warlord has been slain by another \u2014 the Horde scatters.");
+  }
+}
+/* ---- religion ---- */
+const BELIEFS=[
+ {id:"war",ico:"\u2694\uFE0F",nm:"God of War",ds:"Your units fight +15% within 3 tiles of your cities"},
+ {id:"harvest",ico:"\uD83C\uDF3E",nm:"Harvest Goddess",ds:"Your farms yield +1 food"},
+ {id:"forge",ico:"\uD83D\uDD25",nm:"Sacred Forge",ds:"Your mines yield +1 production"}
+];
+const FAITH_NAMES=["The Eternal Flame","The Way of Stars","The Silver Path","The Great Cycle","The Dawn Chorus"];
+function hasBelief(id){ return G.religion&&G.religion.belief===id; }
+function foundReligion(){
+  if(!G.religion) G.religion={belief:null,name:null};
+  if(G.religion.belief) return;
+  const el=$('faithpick'); if(!el) return;
+  const name=FAITH_NAMES[rint(FAITH_NAMES.length)];
+  let html="<div class='promo-card'><div class='promo-hd'>\u26EA A RELIGION IS BORN</div><div class='promo-sub'>Your people found <b style='color:var(--gold)'>"+name+"</b>. Choose its founding belief:</div><div class='promo-opts'>";
+  for(const b of BELIEFS) html+="<button class='promo-opt' data-b='"+b.id+"'><div class='po-ico'>"+b.ico+"</div><div class='po-nm'>"+b.nm+"</div><div class='po-ds'>"+b.ds+"</div></button>";
+  html+="</div></div>"; el.innerHTML=html; el.style.display='flex'; try{sfx("victory");}catch(e){}
+  el.querySelectorAll('[data-b]').forEach(btn=>{btn.onclick=()=>{
+    G.religion={belief:btn.getAttribute('data-b'),name:name};
+    for(const c of G.cities){ if(c.owner===0&&c.buildings.temple) c.faith=0; }
+    el.style.display='none';
+    toast("\u26EA "+name+" is founded \u2014 "+BELIEFS.find(x=>x.id===G.religion.belief).nm+"!");
+    updateHUD(); saveGame();
+  };});
+}
+function spreadTargetCity(u){
+  if(u.type!=="missionary") return null;
+  const here=cityAt(u.tile); if(here&&here.faith!==0) return here;
+  for(const ni of neighIdx(u.tile)){ const c=cityAt(ni); if(c&&c.faith!==0) return c; }
+  return null;
+}
+function spreadFaith(u,city){
+  if(!G.religion||!G.religion.belief){ toast("Found a religion first \u2014 build a Temple."); return; }
+  if(!city) return;
+  city.faith=0;
+  const q=G.players[city.owner];
+  if(q&&q.minor){ q.influence=Math.min(100,(q.influence||0)+10); }
+  toast("\uD83D\uDD4A\uFE0F "+city.name+" embraces "+G.religion.name+(q&&q.minor?" (+10 influence)":"")+"!");
+  fx_grow(city.tile); try{sfx("found");}catch(e){}
+  removeUnit(u); recomputeVisibility(); updateHUD(); saveGame();
+}
+function stepFaith(){
+  if(!G.religion||!G.religion.belief) return;
+  const p0=G.players[0]; if(!p0||p0.defeated) return;
+  for(const c of G.cities){
+    if(c.faith!==0) continue;
+    if(c.owner===0) p0.culture=(p0.culture||0)+1;
+    else p0.gold+=2;
+  }
+}
 /* ---- automation ---- */
 function autoExplore(u){
   let best=null,bd=1e9; const up=xy(u.tile);
@@ -1849,6 +1958,7 @@ function doCombat(att,targetIdx,ranged){
   const tu=unitAt(targetIdx),tc=cityAt(targetIdx); att.attacked=true; att.moved=true;
   const _defOwner=tu?tu.owner:(tc?tc.owner:null);
   if(_defOwner!=null&&_defOwner>=0&&att.owner>=0&&_defOwner!==att.owner&&!isAtWar(att.owner,_defOwner)) declareWar(att.owner,_defOwner);
+  if(att.embarked){ if(att.owner===0) toast("\uD83D\uDEF6 Embarked units cannot fight \u2014 reach land first."); return; }
   let aStr=unitStrength(att,true)*aiCombatMult(att.owner); const _aT=civT(att.owner); if(_aT.atk) aStr*=_aT.atk;
   if(att.owner===0&&_defOwner===G.nemesis) aStr*=1.15;
   sfx(ranged?"shoot":"attack"); shake(6);
@@ -1860,16 +1970,17 @@ function doCombat(att,targetIdx,ranged){
     const dmgToDef=Math.round(clamp(26*Math.pow(ratio,1.35)*rrange(0.85,1.15),3,80));
     tu.hp-=dmgToDef; floatText(targetIdx,"-"+dmgToDef,"#ff7d6e"); fx_hit(targetIdx);
     if(!ranged){let dmgToAtt=Math.round(clamp(18*Math.pow(1/ratio,1.35)*rrange(0.85,1.15),2,55)); if(tu.hp<=0) dmgToAtt=Math.round(dmgToAtt*0.3); att.hp-=dmgToAtt; floatText(att.tile,"-"+dmgToAtt,"#ffd27d");}
-    if(tu.hp<=0){fx_die(targetIdx); const tname=UNITS[tu.type].name,tonwer=tu.owner; removeUnit(tu); if(!ranged&&!cityAt(targetIdx)&&att.hp>0) moveUnitInstant(att,targetIdx); if(att.hp>0){att.xp=(att.xp||0)+2; checkPromotion(att); checkHero(att);}
+    if(tu.hp<=0){fx_die(targetIdx); const tname=UNITS[tu.type].name,tonwer=tu.owner; removeUnit(tu); if(!ranged&&!cityAt(targetIdx)&&att.hp>0&&moveCost(targetIdx,att)<99) moveUnitInstant(att,targetIdx); if(att.hp>0){att.xp=(att.xp||0)+2; checkPromotion(att); checkHero(att);}
       if(att.owner===0&&tonwer>0&&G.players[tonwer]&&!G.players[tonwer].minor){ questEvent("kill",tonwer); favorKill(tonwer); }
+      if(tu.warlord) warlordSlain(att.owner===0);
       if(att.owner===0) toast("Enemy "+tname+" destroyed!"); else if(tonwer===0) toast("Your "+tname+" was lost"+(att.owner<0?" to barbarians!":"!"));}
-    if(att.hp<=0){fx_die(att.tile); if(att.owner===0) toast("Your "+UNITS[att.type].name+" was lost."); removeUnit(att); if(tu&&tu.owner===0&&att.owner>0&&G.players[att.owner]&&!G.players[att.owner].minor) favorKill(att.owner);}
+    if(att.hp<=0){fx_die(att.tile); if(att.owner===0) toast("Your "+UNITS[att.type].name+" was lost."); removeUnit(att); if(tu&&tu.owner===0&&att.owner>0&&G.players[att.owner]&&!G.players[att.owner].minor) favorKill(att.owner); if(att.warlord) warlordSlain(!!(tu&&tu.owner===0));}
   } else if(tc){
     let dStr=cityStrength(tc)*aiCombatMult(tc.owner); if(UNITS[att.type].siege) dStr*=0.6;
     const ratio=aStr/dStr; const dmg=Math.round(clamp(26*Math.pow(ratio,1.3)*rrange(0.85,1.15),4,60));
     tc.hp=clamp(tc.hp-dmg, att.owner<0?1:0, tc.maxhp); floatText(targetIdx,"-"+dmg,"#ff7d6e"); fx_hit(targetIdx);
     if(att.owner<0&&tc.owner===0) toast(tc.name+" is being raided by barbarians!");
-    if(!ranged){let back=Math.round(clamp(16*Math.pow(1/ratio,1.2)*rrange(0.8,1.2),2,40)); att.hp-=back; floatText(att.tile,"-"+back,"#ffd27d"); if(att.hp<=0){fx_die(att.tile); removeUnit(att); if(tc&&tc.owner===0&&att.owner>0&&G.players[att.owner]&&!G.players[att.owner].minor) favorKill(att.owner);}}
+    if(!ranged){let back=Math.round(clamp(16*Math.pow(1/ratio,1.2)*rrange(0.8,1.2),2,40)); att.hp-=back; floatText(att.tile,"-"+back,"#ffd27d"); if(att.hp<=0){fx_die(att.tile); removeUnit(att); if(tc&&tc.owner===0&&att.owner>0&&G.players[att.owner]&&!G.players[att.owner].minor) favorKill(att.owner); if(att.warlord) warlordSlain(!!(tc&&tc.owner===0));}}
     if(tc.hp<=0&&att.owner>=0&&!ranged&&att.hp>0) captureCity(tc,att);
     else if(tc.hp<=0&&att.owner===0) toast(tc.name+" is at the brink — strike with a melee unit to capture!");
   }
@@ -1952,6 +2063,8 @@ function endRound(){
     if(G.diff==="chill"&&u.owner===0) h+=5;
     u.hp=Math.min(u.maxhp,u.hp+h);
   }
+  stepHorde();
+  stepFaith();
   stepCongress();
   processRazing();
   stepQuests();
@@ -2002,9 +2115,10 @@ function dequeueBuild(c){ if(!c.queue) return null; while(c.queue.length){var it
 function completeBuild(c){
   const item=c.building;
   if(item.kind==="unit"){
-    // Units never spawn on the city tile itself — find an adjacent free land tile.
+    // Units never spawn on the city tile itself — find an adjacent free tile (water for ships).
     let spot=null;
-    for(const ni of neighIdx(c.tile)){const tt=G.map[ni]; if(TERR[tt.t].land&&!TERR[tt.t].block&&!unitAt(ni)&&!cityAt(ni)){spot=ni; break;}}
+    const _nav=!!UNITS[item.id].naval;
+    for(const ni of neighIdx(c.tile)){const tt=G.map[ni]; const okTerr=_nav?(!TERR[tt.t].land&&!TERR[tt.t].block):(TERR[tt.t].land&&!TERR[tt.t].block); if(okTerr&&!unitAt(ni)&&!cityAt(ni)){spot=ni; break;}}
     if(spot==null){
       c.buildProg=Math.min(c.buildProg,buildCost(item,c.owner)); // ready, but no room to deploy
       if(c.owner===0&&!c._noRoom){toast(c.name+": no space to deploy "+UNITS[item.id].name+" — move a unit aside."); c._noRoom=true;}
@@ -2029,6 +2143,7 @@ function completeBuild(c){
     }
   } else {
     c.buildings[item.id]=true;
+    if(item.kind==="building"&&item.id==="temple"&&c.owner===0){ if(!G.religion||!G.religion.belief){ foundReligion(); } else { c.faith=0; toast(c.name+" joins "+G.religion.name+"."); } }
     if(item.kind==="building"&&(BUILDINGS[item.id].wallHP)){c.maxhp=100+(c.buildings.walls?50:0)+(c.buildings.castle?90:0); c.hp=Math.min(c.maxhp,c.hp+ (BUILDINGS[item.id].wallHP||0));}
     if(c.owner===0){toast(c.name+" built "+BUILDINGS[item.id].name+"."); fx_grow(c.tile);}
     c.building=dequeueBuild(c)||pickSmartBuild(c);
@@ -2370,7 +2485,7 @@ function drawCity(c){
   if(G.map[c.tile].visible[0]){
     ctx.font="600 "+(TILE*0.16)+"px Inter,sans-serif"; ctx.textAlign="center"; ctx.textBaseline="bottom";
     ctx.fillStyle="rgba(0,0,0,0.6)"; ctx.fillRect(cx-TILE*0.4,sy-TILE*0.02,TILE*0.8,TILE*0.18);
-    ctx.fillStyle="#fff"; ctx.fillText((c.razing?"\uD83D\uDD25 ":"")+(c.owner>0&&G.players[c.owner]&&G.players[c.owner].vassalOf===0?"\uD83D\uDC51 ":"")+(c.owner>0&&c.owner===G.nemesis?"\uD83C\uDFAF ":"")+(c.owner>0&&isAtWar(0,c.owner)?"\u2694 ":"")+c.name,cx,sy+TILE*0.16);
+    ctx.fillStyle="#fff"; ctx.fillText((c.faith===0&&c.owner!==0?"\uD83D\uDD4A ":"")+(c.razing?"\uD83D\uDD25 ":"")+(c.owner>0&&G.players[c.owner]&&G.players[c.owner].vassalOf===0?"\uD83D\uDC51 ":"")+(c.owner>0&&c.owner===G.nemesis?"\uD83C\uDFAF ":"")+(c.owner>0&&isAtWar(0,c.owner)?"\u2694 ":"")+c.name,cx,sy+TILE*0.16);
     if(c.hp<c.maxhp){const w=TILE*0.7; ctx.fillStyle="#0c1119"; ctx.fillRect(cx-w/2,sy+TILE*0.78,w,4); ctx.fillStyle=col; ctx.fillRect(cx-w/2,sy+TILE*0.78,w*(c.hp/c.maxhp),4);}
   }
 }
@@ -2388,6 +2503,7 @@ function drawUnit(u){
   if(u.hero){ctx.font=(TILE*0.24)+"px serif"; ctx.fillText("\u2B50",cx-r,cy-r);}
   if(u.rank>0){ctx.fillStyle="#ffd76a"; ctx.font="bold "+(TILE*0.2)+"px serif"; ctx.fillText(u.rank===1?"\u2161":"\u2162",cx+r,cy+r*0.7); ctx.fillStyle="#fff";}
   if(u.trading){ctx.font=(TILE*0.2)+"px serif"; ctx.fillText("\uD83D\uDCB0",cx+r,cy-r);}
+  if(u.embarked){ctx.font=(TILE*0.26)+"px serif"; ctx.fillText("\uD83D\uDEF6",cx,cy+r*0.9);}
   const lvl=unitLevel(u);
   if(lvl>0){ctx.fillStyle="#ffd76a"; ctx.strokeStyle="rgba(0,0,0,0.5)"; ctx.lineWidth=1; for(let k=0;k<lvl;k++){const dx=cx-(lvl-1)*TILE*0.05+k*TILE*0.1; ctx.beginPath(); ctx.arc(dx,cy-r-TILE*0.08,TILE*0.035,0,7); ctx.fill(); ctx.stroke();}}
   if(u.hp<u.maxhp){const w=TILE*0.56; ctx.fillStyle="#0c1119"; ctx.fillRect(cx-w/2,cy+r+3,w,3.5); const f=u.hp/u.maxhp; ctx.fillStyle=f>0.5?"#5fcf80":f>0.25?"#f0b44a":"#e8503f"; ctx.fillRect(cx-w/2,cy+r+3,w*f,3.5);}
@@ -2494,6 +2610,7 @@ function renderSelPanel(){
         if(G.players[0].techs.wheel) act.appendChild(mkBtn("Road","",()=>workerBuild(u,"road")));
         if(u.work) act.appendChild(mkBtn("Cancel","danger",()=>{u.work=null; renderSelPanel(); saveGame();}));
       }
+      if(u.type==="missionary"){ const _sc=spreadTargetCity(u); if(_sc) act.appendChild(mkBtn("\uD83D\uDD4A\uFE0F Spread Faith \u2014 "+_sc.name,"primary",()=>spreadFaith(u,_sc))); }
       if(u.type==="scout") act.appendChild(mkBtn(u.auto?"\uD83E\uDD16 Auto-Explore \u2713":"\uD83E\uDD16 Auto-Explore",u.auto?"primary":"",()=>{u.auto=!u.auto; toast(u.auto?"Scout will wander the fog by itself.":"Manual control restored."); if(u.auto&&!u.moved) autoExplore(u); renderSelPanel(); saveGame();}));
       if(u.type==="caravan"&&!u.trading){ const _tc=tradeTargetCity(u); if(_tc) act.appendChild(mkBtn("\uD83D\uDC2A Trade with "+_tc.name,"primary",()=>startTrade(u,_tc))); }
       if(u.type==="caravan"&&u.trading){ const _dc=G.cities.find(c=>c.id===u.trading.to); act.appendChild(mkBtn("End Route ("+u.trading.left+" turns left)","danger",()=>{cancelTrade(u,"Trade route ended."); updateHUD(); saveGame();})); }
@@ -2715,6 +2832,9 @@ function renderHelp(){
     "<div class='helpcard'><h3>Units</h3><p>Workers build farms, mines, pastures and roads, and can <span class='k'>chop forests</span> — clearing a forest to grassland and rushing 20 production to your nearest city. Military units have ⚔attack and 🛡defense; ranged units (Archer, Catapult) strike without being hit back. Spearmen counter mounted units.</p></div>"+
     "<div class='helpcard'><h3>Ancient Ruins 🗿</h3><p>Glowing ruins dot the map. Move any unit onto one to claim a reward — gold, a free technology, a map of the region, fresh warriors, or a battle‑hardened unit. Explore to find them first.</p></div>"+
     "<div class='helpcard'><h3>Barbarians ☠️</h3><p>Raiders emerge from the wilderness and attack nearby units and cities. They can't capture cities, but they'll pillage and kill — keep a defender close to your borders and patrol with scouts.</p></div>"+
+    "<div class='helpcard'><h3>Naval Warfare \u26F5</h3><p>Coastal cities build <span class='k'>Galleys</span> (Pottery) and ranged <span class='k'>Frigates</span> (Gunpowder) that rule the waves and bombard the shore. Your land units can <span class='k'>embark</span>: simply move onto water \uD83D\uDEF6 \u2014 they sail slowly, cannot fight, and defend poorly, so escort them. Settle islands, raid coasts, own the ocean.</p></div>"+
+    "<div class='helpcard'><h3>Religion \u26EA</h3><p>Your first <span class='k'>Temple</span> founds a Religion \u2014 choose a belief: <span class='k'>God of War</span> (+15% strength near your cities), <span class='k'>Harvest Goddess</span> (farms +1 food), or <span class='k'>Sacred Forge</span> (mines +1 prod). Every faithful city pays: your own <span class='k'>+1 culture/turn</span>, foreign ones <span class='k'>+2 gold/turn</span>. Build <span class='k'>Missionaries</span> (Writing) and spread the word \u2014 converting a city-state also earns +10 influence.</p></div>"+
+    "<div class='helpcard'><h3>The Horde \uD83D\uDC79</h3><p>Around turn 34 the barbarian tribes unite under a named <span class='k'>Warlord</span> \u2B50 who raids every empire and spawns raiders endlessly. Slay him for <span class='k'>+150 gold and +1 favor with every nation</span> \u2014 the world remembers its savior. Ignore him at your peril.</p></div>"+
     "<div class='helpcard'><h3>World Congress \uD83C\uDFDB\uFE0F</h3><p>Every <span class='k'>15 turns</span> the nations convene. Your voting bloc = your empire + <span class='k'>city-state allies</span> + <span class='k'>friends (favor 2+)</span> + <span class='k'>vassals</span>. The biggest bloc is crowned <span class='k'>Host</span> (+1 point, +50 gold) and, if that's you, <span class='k'>chooses the world resolution</span>. Host <span class='k'>3 sessions</span> to claim the <span class='k'>Diplomatic Victory</span> \u2014 but rivals earn points too.</p></div>"+
     "<div class='helpcard'><h3>Vassal States \uD83D\uDC51</h3><p>Crush an enemy in war and <span class='k'>demand vassalage</span> \u2014 from the peace-offer popup or the Diplomacy panel when you're overwhelming. A vassal pays <span class='k'>tribute every turn</span>, <span class='k'>fights all your wars</span>, votes for you in Congress, never attacks you, and doesn't block your conquest victory. But stay strong \u2014 a vassal mightier than its master may <span class='k'>rebel</span>. Release one anytime for +2 favor.</p></div>"+
     "<div class='helpcard'><h3>Automation \uD83E\uDD16</h3><p>Toggle <span class='k'>Auto-Improve</span> on a worker and it develops your empire by itself every turn, forever. Toggle <span class='k'>Auto-Explore</span> on a scout and it hunts the fog for ruins and wonders on its own. Tap the toggle again for manual control.</p></div>"+
@@ -2771,19 +2891,21 @@ function saveGame(){
   try{
     const s={map:G.map.map(t=>({t:t.t,res:t.res,owner:t.owner,ownerCity:t.ownerCity,improv:t.improv,road:t.road,ruin:t.ruin,camp:t.camp,nat:t.nat,natDiscovered:t.natDiscovered,explored:t.explored,visible:t.visible,elev:t.elev})),
       players:G.players,turn:G.turn,cur:G.cur,seed:G.seed,diff:G.diff,units:G.units.map(u=>Object.assign({},u)),cities:G.cities.map(c=>Object.assign({},c)),
-      nextUnitId:G.nextUnitId,nextCityId:G.nextCityId,era:G.era,over:G.over,cityNamePool:G.cityNamePool,wonderOwner:G.wonderOwner,mods:G.mods,nemesis:G.nemesis==null?null:G.nemesis,nemesisSlainBy:G.nemesisSlainBy==null?null:G.nemesisSlainBy,congress:G.congress||null};
+      nextUnitId:G.nextUnitId,nextCityId:G.nextCityId,era:G.era,over:G.over,cityNamePool:G.cityNamePool,wonderOwner:G.wonderOwner,mods:G.mods,nemesis:G.nemesis==null?null:G.nemesis,nemesisSlainBy:G.nemesisSlainBy==null?null:G.nemesisSlainBy,congress:G.congress||null,religion:G.religion||null,horde:G.horde||null};
     localStorage.setItem(SAVE_KEY,JSON.stringify(s));
   }catch(e){}
 }
 function loadGame(){
   try{const raw=localStorage.getItem(SAVE_KEY); if(!raw) return false; const s=JSON.parse(raw); if(!s||!s.map||!s.players) return false;
     RNG=mulberry32((s.seed||1)>>>0);
-    G={map:s.map,players:s.players,turn:s.turn,cur:s.cur===1?1:0,seed:s.seed,diff:s.diff||"normal",units:s.units,cities:s.cities,nextUnitId:s.nextUnitId,nextCityId:s.nextCityId,era:s.era||"Ancient",over:!!s.over,cityNamePool:s.cityNamePool||CITY_NAMES.slice(),wonderOwner:s.wonderOwner||{},mods:s.mods||{},nemesis:(s.nemesis!=null?s.nemesis:null),nemesisSlainBy:(s.nemesisSlainBy!=null?s.nemesisSlainBy:null),congress:(s.congress||null),promoQueue:[],selUnit:null,selCity:null,anim:{shake:0,particles:[],floats:[]},log:[]};
+    G={map:s.map,players:s.players,turn:s.turn,cur:s.cur===1?1:0,seed:s.seed,diff:s.diff||"normal",units:s.units,cities:s.cities,nextUnitId:s.nextUnitId,nextCityId:s.nextCityId,era:s.era||"Ancient",over:!!s.over,cityNamePool:s.cityNamePool||CITY_NAMES.slice(),wonderOwner:s.wonderOwner||{},mods:s.mods||{},nemesis:(s.nemesis!=null?s.nemesis:null),nemesisSlainBy:(s.nemesisSlainBy!=null?s.nemesisSlainBy:null),congress:(s.congress||null),religion:(s.religion||null),horde:(s.horde||null),promoQueue:[],selUnit:null,selCity:null,anim:{shake:0,particles:[],floats:[]},log:[]};
     for(const u of G.units){const p=xy(u.tile); if(u.px==null){u.px=p[0]; u.py=p[1];} u.promos=u.promos||{}; if(u._promoLvl==null) u._promoLvl=unitLevel(u);}
     for(const p of G.players){if(p._goldInc==null)p._goldInc=0; if(p._sciInc==null)p._sciInc=0; if(!p.atWar)p.atWar={}; if(!p.peaceUntil)p.peaceUntil={}; if(!p._warTurns)p._warTurns={}; if(p.dipCool==null)p.dipCool=0; if(p.gpp==null)p.gpp=0; if(p.gppNeed==null)p.gppNeed=25; if(p.gpCount==null)p.gpCount=0; if(p.culture==null)p.culture=0; if(p.minor&&p.influence==null)p.influence=0; if(p.favor==null)p.favor=0; if(p.culPool==null)p.culPool=0; if(!p.policies)p.policies={};}
     for(const c of G.cities){if(c.culture==null)c.culture=0; if(c.ring==null)c.ring=1;}
     if(G.players[0]&&(G.players[0].gpp||0)>=(G.players[0].gppNeed||25)) G._gpReady=true;
     if(!G.congress) G.congress={next:Math.max(20,G.turn+8),points:{},host:null};
+    if(!G.religion) G.religion={belief:null,name:null};
+    if(!G.horde) G.horde={up:false,slain:false};
     recomputeVisibility();
     const c=G.cities.find(c=>c.owner===0),u=G.units.find(u=>u.owner===0); if(c) centerOn(c.tile); else if(u) centerOn(u.tile);
     applyStartZoom();
