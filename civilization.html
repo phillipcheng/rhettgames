@@ -468,12 +468,12 @@ const NATWONDERS={
 };
 function bDef(id){return BUILDINGS[id]||WONDERS[id];}
 const CIVS=[
-  {name:"Rome",leader:"Caesar",color:"#3f8efc",em:"🦅",trait:"The Legions",tdesc:"+12% attack \u00B7 Legions",t:{atk:1.12},uu:{base:"sword",id:"legion"}},
-  {name:"Egypt",leader:"Cleopatra",color:"#e8b44a",em:"🐍",trait:"Monument Builders",tdesc:"Wonders \u221220% \u00B7 War Chariots",t:{wonderDisc:0.8},uu:{base:"chariot",id:"warchariot"}},
-  {name:"Greece",leader:"Pericles",color:"#39c2c9",em:"🏛️",trait:"Philosophers",tdesc:"+15% science \u00B7 Hoplites",t:{sci:1.15},uu:{base:"spear",id:"hoplite"}},
-  {name:"China",leader:"Wu Zetian",color:"#e8503f",em:"🐉",trait:"Middle Kingdom",tdesc:"Great People +30% \u00B7 Chu-Ko-Nu",t:{gpp:1.3},uu:{base:"archer",id:"chukonu"}},
-  {name:"Mongolia",leader:"Genghis",color:"#c07be8",em:"🐎",trait:"The Horde",tdesc:"Mounted +1 move \u00B7 Keshiks",t:{mountedMove:1},uu:{base:"horse",id:"keshik"}},
-  {name:"Maya",leader:"Pacal",color:"#5fcf80",em:"☀️",trait:"The Long Count",tdesc:"+30% culture \u00B7 Jaguars",t:{cul:1.3},uu:{base:"warrior",id:"jaguar"}}
+  {name:"Rome",leader:"Caesar",color:"#3f8efc",em:"🦅",trait:"The Legions",tdesc:"+25% attack \u00B7 Legions",t:{atk:1.25},uu:{base:"sword",id:"legion"}},
+  {name:"Egypt",leader:"Cleopatra",color:"#e8b44a",em:"🐍",trait:"Monument Builders",tdesc:"Wonders \u221235% \u00B7 War Chariots",t:{wonderDisc:0.65},uu:{base:"chariot",id:"warchariot"}},
+  {name:"Greece",leader:"Pericles",color:"#39c2c9",em:"🏛️",trait:"Philosophers",tdesc:"+30% science \u00B7 Hoplites",t:{sci:1.3},uu:{base:"spear",id:"hoplite"}},
+  {name:"China",leader:"Wu Zetian",color:"#e8503f",em:"🐉",trait:"Middle Kingdom",tdesc:"Great People +50% \u00B7 Chu-Ko-Nu",t:{gpp:1.5},uu:{base:"archer",id:"chukonu"}},
+  {name:"Mongolia",leader:"Genghis",color:"#c07be8",em:"🐎",trait:"The Horde",tdesc:"Mounted +2 move \u00B7 Keshiks",t:{mountedMove:2},uu:{base:"horse",id:"keshik"}},
+  {name:"Maya",leader:"Pacal",color:"#5fcf80",em:"☀️",trait:"The Long Count",tdesc:"+50% culture \u00B7 Jaguars",t:{cul:1.5},uu:{base:"warrior",id:"jaguar"}}
 ];
 const CITY_NAMES=["Aurelia","Highspire","Ravenmoor","Goldreach","Stormhold","Westbrook","Ironforge","Sunhaven","Thornwall","Lakeshire","Brightwater","Stonegate","Fairmont","Eastvale","Duskwood","Greymarch","Silverpond","Redcliff","Oakhollow","Frostvale","Mistral","Caldera"];
 const DIFFS={
@@ -2164,7 +2164,7 @@ function endRound(){
   processTrade();
   progressTraining();
   // Refresh units for the new round.
-  for(const u of G.units){u.mp=UNITS[u.type].move+(u.promos&&u.promos.move?1:0)+(UNITS[u.type].mounted&&civT(u.owner).mountedMove?1:0); u.moved=false; u.attacked=false; if(u.train||u.trading){u.mp=0; u.moved=true;}}
+  for(const u of G.units){u.mp=UNITS[u.type].move+(u.promos&&u.promos.move?1:0)+(UNITS[u.type].mounted?(civT(u.owner).mountedMove||0):0); u.moved=false; u.attacked=false; if(u.train||u.trading){u.mp=0; u.moved=true;}}
   runAutomation();
   stepGoldenAge();
   stepCulture();
