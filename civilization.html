@@ -245,6 +245,7 @@
     <div class="iconbtn" id="btn-cities" title="Cities">🏛️</div>
     <div class="iconbtn" id="btn-dip" title="Diplomacy">🕊️</div>
     <div class="iconbtn" id="btn-pol" title="Social Policies">📜</div>
+    <div class="iconbtn" id="btn-graph" title="Power Graph">📈</div>
     <div class="iconbtn" id="btn-mute" title="Sound">🔊</div>
     <div class="iconbtn" id="btn-help" title="Help">❔</div>
   </div>
@@ -253,6 +254,7 @@
     <button class="zbtn" id="z-fs" title="Fullscreen">&#x26F6;</button>
     <button class="zbtn" id="z-in" title="Zoom in">&#xFF0B;</button>
     <button class="zbtn" id="z-out" title="Zoom out">&#xFF0D;</button>
+    <button class="zbtn" id="z-mu" title="Music">&#x1F3B5;</button>
   </div>
   <div id="forecast"></div>
   <div id="selpanel">
@@ -312,6 +314,14 @@
       <button class="xbtn" data-close="dipscreen">×</button>
     </div>
     <div class="sheetbody" id="dip-body"></div>
+  </div></div>
+  <div class="overlay" id="graphscreen"><div class="sheet">
+    <div class="sheethead">
+      <div style="width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;background:#0c1119;">📈</div>
+      <h2>Power Graph<span class="sm">Military might of every empire, turn by turn</span></h2>
+      <button class="xbtn" data-close="graphscreen">×</button>
+    </div>
+    <div class="sheetbody"><div id="graph-legend" style="margin-bottom:10px;"></div><canvas id="graphcv" width="600" height="300" style="width:100%;border-radius:12px;"></canvas></div>
   </div></div>
   <div class="overlay" id="polscreen"><div class="sheet">
     <div class="sheethead">
@@ -496,7 +506,7 @@ function newGame(seed,civIndex,diffKey,rivals,mods){
   rivals=clamp(rivals||1,1,CIVS.length-1);
   RNG=mulberry32(seed>>>0);
   const nPlayers=rivals+1;
-  const map=genMap(nPlayers);
+  const map=genMap(nPlayers,(mods&&mods.mapType)||"continents");
   const pCiv=CIVS[civIndex];
   const usedCiv={}; usedCiv[civIndex]=true;
   const players=[makePlayer(0,pCiv,true)];
@@ -518,7 +528,7 @@ function newGame(seed,civIndex,diffKey,rivals,mods){
     revealAround(s,k,3);
   }
   placeCityStates(3);
-  G.nemesis=null; G.nemesisSlainBy=null; G.congress={next:20,points:{},host:null}; G.religion={belief:null,name:null}; G.horde={up:false,slain:false}; G.stats={bw:0,ul:0,cf:0,cc:0,cr:0,hr:0}; G._report=[];
+  G.nemesis=null; G.nemesisSlainBy=null; G.congress={next:20,points:{},host:null}; G.religion={belief:null,name:null}; G.horde={up:false,slain:false}; G.stats={bw:0,ul:0,cf:0,cc:0,cr:0,hr:0}; G._report=[]; G.powerHist=[];
   if(G.diff==="chill") G.players[0].gold+=40;
   recomputeVisibility(); centerOn(starts[0]); applyStartZoom(); saveGame();
   return G;
@@ -531,12 +541,19 @@ function makePlayer(id,civ,human){
 }
 
 /* ---- map generation ---- */
-function genMap(np){
+function genMap(np,mtype){
   np=np||2;
+  const MAPT={
+    continents:{blobs:18,rlo:3,rhi:7,clo:0.12,chi:0.88,sea:0.34,edge:0.25,mtn:0.82,hill:0.66},
+    pangaea:{blobs:20,rlo:7,rhi:13,clo:0.26,chi:0.74,sea:0.26,edge:0.12,mtn:0.84,hill:0.68},
+    archipelago:{blobs:34,rlo:2,rhi:4,clo:0.10,chi:0.90,sea:0.42,edge:0.30,mtn:0.86,hill:0.72},
+    highlands:{blobs:18,rlo:3,rhi:8,clo:0.12,chi:0.88,sea:0.26,edge:0.30,mtn:0.70,hill:0.50}
+  };
+  const K=MAPT[mtype]||MAPT.continents;
   const map=new Array(MAP_W*MAP_H);
   const elev=new Float32Array(MAP_W*MAP_H);
-  for(let b=0;b<18;b++){
-    const cx=rrange(MAP_W*0.12,MAP_W*0.88),cy=rrange(MAP_H*0.15,MAP_H*0.85),r=rrange(3,7),h=rrange(0.6,1.2);
+  for(let b=0;b<K.blobs;b++){
+    const cx=rrange(MAP_W*K.clo,MAP_W*K.chi),cy=rrange(MAP_H*Math.max(0.15,K.clo),MAP_H*Math.min(0.85,K.chi)),r=rrange(K.rlo,K.rhi),h=rrange(0.6,1.2);
     for(let y=0;y<MAP_H;y++)for(let x=0;x<MAP_W;x++){const d=dist2(x,y,cx,cy);elev[idx(x,y)]+=h*Math.exp(-(d*d)/(2*r*r));}
   }
   const moist=new Float32Array(MAP_W*MAP_H);
@@ -546,17 +563,17 @@ function genMap(np){
   }
   for(let y=0;y<MAP_H;y++)for(let x=0;x<MAP_W;x++){
     const ex=Math.min(x,MAP_W-1-x)/(MAP_W*0.5),ey=Math.min(y,MAP_H-1-y)/(MAP_H*0.5);
-    const edge=clamp(Math.min(ex,ey)*1.4,0,1); elev[idx(x,y)]*=lerp(0.25,1,edge);
+    const edge=clamp(Math.min(ex,ey)*1.4,0,1); elev[idx(x,y)]*=lerp(K.edge,1,edge);
   }
   let emax=0; for(let i=0;i<elev.length;i++) emax=Math.max(emax,elev[i]);
   for(let i=0;i<elev.length;i++) elev[i]/=(emax||1);
-  const sea=0.34;
+  const sea=K.sea;
   for(let y=0;y<MAP_H;y++)for(let x=0;x<MAP_W;x++){
     const i=idx(x,y),e=elev[i],m=moist[i],lat=Math.abs((y/(MAP_H-1))-0.5)*2; let terr;
     if(e<sea) terr="ocean";
     else if(e<sea+0.04) terr="coast";
-    else if(e>0.82) terr="mtn";
-    else if(e>0.66) terr="hills";
+    else if(e>K.mtn) terr="mtn";
+    else if(e>K.hill) terr="hills";
     else if(lat>0.82) terr=e>0.5?"snow":"tundra";
     else if(lat>0.62) terr=m>0.1?"forest":"tundra";
     else if(m<-0.35&&lat<0.5) terr="desert";
@@ -1104,6 +1121,24 @@ function hofSave(entry){
     arr.unshift(entry); while(arr.length>12) arr.pop();
     localStorage.setItem("empireHOF",JSON.stringify(arr));
   }catch(e){}
+}
+function renderGraph(){
+  const cv=$('graphcv'); if(!cv||!G) return;
+  const c2=cv.getContext('2d');
+  const W=cv.width=Math.max(320,Math.min(900,(window.innerWidth||600)-70)), H=cv.height=300;
+  c2.fillStyle="#0c1119"; c2.fillRect(0,0,W,H);
+  const hist=G.powerHist||[]; const majors=G.players.filter(p=>!p.minor);
+  let vmax=10; for(const smp of hist) for(let k=1;k<smp.length;k++) vmax=Math.max(vmax,smp[k]||0);
+  for(let gy=0;gy<=4;gy++){ const y=H-14-(H-36)*gy/4;
+    c2.strokeStyle="rgba(255,255,255,0.08)"; c2.beginPath(); c2.moveTo(34,y); c2.lineTo(W-8,y); c2.stroke();
+    c2.fillStyle="#69788c"; c2.font="10px sans-serif"; c2.fillText(String(Math.round(vmax*gy/4)),4,y+3); }
+  majors.forEach((p,mi)=>{ c2.strokeStyle=p.color; c2.lineWidth=p.id===0?2.5:1.5; c2.beginPath();
+    hist.forEach((smp,i)=>{ const x=34+(W-46)*(hist.length<=1?1:i/(hist.length-1));
+      const y=H-14-(H-36)*Math.min(1,(smp[mi+1]||0)/vmax);
+      if(i===0) c2.moveTo(x,y); else c2.lineTo(x,y); });
+    c2.stroke(); });
+  let lg=""; majors.forEach(p=>{ lg+="<span style='display:inline-flex;align-items:center;gap:5px;margin:2px 12px 2px 0;font-size:12.5px;"+(p.defeated?"opacity:0.4;":"")+"'><span style='width:10px;height:10px;border-radius:3px;background:"+p.color+";display:inline-block'></span>"+p.em+" "+p.civ+" <b style='color:var(--gold)'>"+(p.defeated?"\u2020":Math.round(powerOf(p.id)))+"</b></span>"; });
+  const _gl=$('graph-legend'); if(_gl) _gl.innerHTML=lg;
 }
 function hofLoad(){ try{ const raw=localStorage.getItem("empireHOF"); return raw?JSON.parse(raw):[]; }catch(e){ return []; } }
 /* ---- the barbarian horde ---- */
@@ -2208,6 +2243,7 @@ function endRound(){
   for(const u of G.units){u.mp=UNITS[u.type].move+(u.promos&&u.promos.move?1:0)+(UNITS[u.type].mounted?(civT(u.owner).mountedMove||0):0); u.moved=false; u.attacked=false; if(u.train||u.trading){u.mp=0; u.moved=true;}}
   runAutomation();
   flushReport();
+  if(G.turn%2===0){ if(!G.powerHist) G.powerHist=[]; G.powerHist.push([G.turn].concat(G.players.filter(p=>!p.minor).map(p=>p.defeated?0:Math.round(powerOf(p.id))))); while(G.powerHist.length>240) G.powerHist.shift(); }
   stepGoldenAge();
   stepCulture();
   stepCityStates();
@@ -2534,6 +2570,7 @@ function loop(now){
   if(rafOn) requestAnimationFrame(loop);
 }
 function render(){
+  try{musicTick();}catch(e){}
   let shx=0,shy=0; if(G.anim.shake>0){shx=rrange(-G.anim.shake,G.anim.shake); shy=rrange(-G.anim.shake,G.anim.shake);}
   ctx.clearRect(0,0,VIEW_W,VIEW_H); ctx.fillStyle="#0c1a2b"; ctx.fillRect(0,0,VIEW_W,VIEW_H);
   ctx.save(); ctx.translate(VIEW_W/2+shx,VIEW_H/2+shy); ctx.scale(cam.scale,cam.scale); ctx.translate(-cam.x,-cam.y);
@@ -3013,6 +3050,40 @@ function renderHelp(){
 
 /* ---- audio ---- */
 let AC=null,master=null,muted=false;
+let MUS={on:(function(){try{return localStorage.getItem("empireMusic")!=="0";}catch(e){return true;}})(),next:0};
+const MUS_CHORDS={
+ peace:[[220,277.18,329.63],[196,246.94,293.66],[174.61,220,261.63],[246.94,293.66,369.99]],
+ war:[[110,130.81,164.81],[98,116.54,146.83],[103.83,123.47,155.56]],
+ golden:[[261.63,329.63,392,493.88],[293.66,369.99,440,554.37],[220,277.18,329.63,415.3]]
+};
+function musicMood(){
+  try{ if(document.body.classList.contains("goldenage")) return "golden"; }catch(e){}
+  if(G&&G.players&&G.players.some(q=>q.id>0&&!q.minor&&!q.defeated&&isAtWar(0,q.id))) return "war";
+  return "peace";
+}
+function musicToggle(){
+  MUS.on=!MUS.on;
+  try{localStorage.setItem("empireMusic",MUS.on?"1":"0");}catch(e){}
+  toast(MUS.on?"\uD83C\uDFB5 Music on":"\uD83D\uDD07 Music off");
+  const b=$('z-mu'); if(b) b.textContent=MUS.on?"\uD83C\uDFB5":"\uD83D\uDD07";
+}
+function musicTick(){
+  if(!MUS.on||!AC||!master||!G||G.over) return;
+  const now=AC.currentTime;
+  if(now<MUS.next-0.2) return;
+  const mood=musicMood(), set=MUS_CHORDS[mood], ch=set[Math.floor(Math.random()*set.length)];
+  const dur=mood==="war"?4.5:6;
+  for(const f of ch){
+    const o=AC.createOscillator(),g=AC.createGain();
+    o.type=mood==="war"?"sawtooth":"triangle";
+    o.frequency.value=f*(mood==="war"?0.5:1);
+    g.gain.setValueAtTime(0.0001,now);
+    g.gain.linearRampToValueAtTime(mood==="war"?0.03:0.022,now+1.4);
+    g.gain.linearRampToValueAtTime(0.0001,now+dur);
+    o.connect(g); g.connect(master); o.start(now); o.stop(now+dur+0.2);
+  }
+  MUS.next=now+dur-0.9;
+}
 function initAudio(){if(AC) return; try{AC=new (window.AudioContext||window.webkitAudioContext)(); master=AC.createGain(); master.gain.value=0.25; master.connect(AC.destination);}catch(e){AC=null;}}
 function tone(freq,dur,type,vol,when){if(!AC||muted) return; const t=when||AC.currentTime; const o=AC.createOscillator(),g=AC.createGain(); o.type=type||'sine'; o.frequency.value=freq; o.connect(g); g.connect(master); g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(vol||0.3,t+0.01); g.gain.exponentialRampToValueAtTime(0.0001,t+dur); o.start(t); o.stop(t+dur+0.02);}
 function noise(dur,vol,when){if(!AC||muted) return; const t=when||AC.currentTime; const n=AC.createBufferSource(); const buf=AC.createBuffer(1,Math.floor(AC.sampleRate*dur),AC.sampleRate); const d=buf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*(1-i/d.length); n.buffer=buf; const g=AC.createGain(); g.gain.value=vol||0.2; const f=AC.createBiquadFilter(); f.type='lowpass'; f.frequency.value=1200; n.connect(f); f.connect(g); g.connect(master); n.start(t);}
@@ -3036,14 +3107,14 @@ function saveGame(){
   try{
     const s={map:G.map.map(t=>({t:t.t,res:t.res,owner:t.owner,ownerCity:t.ownerCity,improv:t.improv,road:t.road,ruin:t.ruin,camp:t.camp,nat:t.nat,natDiscovered:t.natDiscovered,explored:t.explored,visible:t.visible,elev:t.elev})),
       players:G.players,turn:G.turn,cur:G.cur,seed:G.seed,diff:G.diff,units:G.units.map(u=>Object.assign({},u)),cities:G.cities.map(c=>Object.assign({},c)),
-      nextUnitId:G.nextUnitId,nextCityId:G.nextCityId,era:G.era,over:G.over,cityNamePool:G.cityNamePool,wonderOwner:G.wonderOwner,mods:G.mods,nemesis:G.nemesis==null?null:G.nemesis,nemesisSlainBy:G.nemesisSlainBy==null?null:G.nemesisSlainBy,congress:G.congress||null,religion:G.religion||null,horde:G.horde||null,stats:G.stats||null};
+      nextUnitId:G.nextUnitId,nextCityId:G.nextCityId,era:G.era,over:G.over,cityNamePool:G.cityNamePool,wonderOwner:G.wonderOwner,mods:G.mods,nemesis:G.nemesis==null?null:G.nemesis,nemesisSlainBy:G.nemesisSlainBy==null?null:G.nemesisSlainBy,congress:G.congress||null,religion:G.religion||null,horde:G.horde||null,stats:G.stats||null,powerHist:G.powerHist||[]};
     localStorage.setItem(SAVE_KEY,JSON.stringify(s));
   }catch(e){}
 }
 function loadGame(){
   try{const raw=localStorage.getItem(SAVE_KEY); if(!raw) return false; const s=JSON.parse(raw); if(!s||!s.map||!s.players) return false;
     RNG=mulberry32((s.seed||1)>>>0);
-    G={map:s.map,players:s.players,turn:s.turn,cur:s.cur===1?1:0,seed:s.seed,diff:s.diff||"normal",units:s.units,cities:s.cities,nextUnitId:s.nextUnitId,nextCityId:s.nextCityId,era:s.era||"Ancient",over:!!s.over,cityNamePool:s.cityNamePool||CITY_NAMES.slice(),wonderOwner:s.wonderOwner||{},mods:s.mods||{},nemesis:(s.nemesis!=null?s.nemesis:null),nemesisSlainBy:(s.nemesisSlainBy!=null?s.nemesisSlainBy:null),congress:(s.congress||null),religion:(s.religion||null),horde:(s.horde||null),stats:(s.stats||null),promoQueue:[],selUnit:null,selCity:null,anim:{shake:0,particles:[],floats:[]},log:[]};
+    G={map:s.map,players:s.players,turn:s.turn,cur:s.cur===1?1:0,seed:s.seed,diff:s.diff||"normal",units:s.units,cities:s.cities,nextUnitId:s.nextUnitId,nextCityId:s.nextCityId,era:s.era||"Ancient",over:!!s.over,cityNamePool:s.cityNamePool||CITY_NAMES.slice(),wonderOwner:s.wonderOwner||{},mods:s.mods||{},nemesis:(s.nemesis!=null?s.nemesis:null),nemesisSlainBy:(s.nemesisSlainBy!=null?s.nemesisSlainBy:null),congress:(s.congress||null),religion:(s.religion||null),horde:(s.horde||null),stats:(s.stats||null),powerHist:(s.powerHist||[]),promoQueue:[],selUnit:null,selCity:null,anim:{shake:0,particles:[],floats:[]},log:[]};
     for(const u of G.units){const p=xy(u.tile); if(u.px==null){u.px=p[0]; u.py=p[1];} u.promos=u.promos||{}; if(u._promoLvl==null) u._promoLvl=unitLevel(u);}
     for(const p of G.players){if(p._goldInc==null)p._goldInc=0; if(p._sciInc==null)p._sciInc=0; if(!p.atWar)p.atWar={}; if(!p.peaceUntil)p.peaceUntil={}; if(!p._warTurns)p._warTurns={}; if(p.dipCool==null)p.dipCool=0; if(p.gpp==null)p.gpp=0; if(p.gppNeed==null)p.gppNeed=25; if(p.gpCount==null)p.gpCount=0; if(p.culture==null)p.culture=0; if(p.minor&&p.influence==null)p.influence=0; if(p.favor==null)p.favor=0; if(p.culPool==null)p.culPool=0; if(!p.policies)p.policies={};}
     for(const c of G.cities){if(c.culture==null)c.culture=0; if(c.ring==null)c.ring=1;}
@@ -3052,6 +3123,7 @@ function loadGame(){
     if(!G.religion) G.religion={belief:null,name:null};
     if(!G.horde) G.horde={up:false,slain:false};
     if(!G.stats) G.stats={bw:0,ul:0,cf:0,cc:0,cr:0,hr:0};
+    if(!G.powerHist) G.powerHist=[];
     G._report=[];
     recomputeVisibility();
     const c=G.cities.find(c=>c.owner===0),u=G.units.find(u=>u.owner===0); if(c) centerOn(c.tile); else if(u) centerOn(u.tile);
@@ -3062,13 +3134,15 @@ function loadGame(){
 function hasSave(){try{return !!localStorage.getItem(SAVE_KEY);}catch(e){return false;}}
 
 /* ---- start menu ---- */
-let selCivIndex=0,selDiff="normal",selRivals=3;
+let selCivIndex=0,selDiff="normal",selRivals=3,selMapType="continents";
+const MAPTYPES=[{id:"continents",em:"\uD83C\uDF0D",nm:"Continents"},{id:"pangaea",em:"\uD83E\uDD68",nm:"Pangaea"},{id:"archipelago",em:"\uD83C\uDFDD\uFE0F",nm:"Islands"},{id:"highlands",em:"\u26F0\uFE0F",nm:"Highlands"}];
 let selMods={noBarbs:false,fastWork:false,goldRush:false,noEvents:false};
 const MODLIST=[{key:"noBarbs",em:"🛡️",nm:"No Raids",ds:"No barbarians"},{key:"fastWork",em:"⚡",nm:"Fast Work",ds:"Instant build"},{key:"goldRush",em:"💰",nm:"Gold Rush",ds:"+Gold income"},{key:"noEvents",em:"🚫",nm:"No Events",ds:"Disable events"}];
 function renderStartMenu(showContinue){
   const c=$('start-content'); let html="";
   if(showContinue) html+="<button id='btn-continue' style='width:100%;padding:14px;border-radius:12px;border:1px solid #caa13e;cursor:pointer;background:linear-gradient(180deg,#f0c061,#d9a23f);color:#241a06;font-weight:800;font-size:16px;margin-bottom:14px;'>▶ Continue Empire</button>";
   html+="<div class='sectlbl'>Choose your civilization</div><div id='civpick'></div>";
+  html+="<div class='sectlbl'>Map type</div><div class='pickrow' id='mappick'></div>";
   html+="<div class='sectlbl'>Rival empires</div><div class='pickrow' id='rivpick'></div>";
   html+="<div class='sectlbl'>Difficulty</div><div class='pickrow' id='diffpick'></div>";
   html+="<div class='sectlbl'>Modifiers <span style='color:var(--faint);font-weight:500;text-transform:none;letter-spacing:0'>— optional, tap to toggle</span></div><div class='pickrow' id='modpick'></div>";
@@ -3086,6 +3160,8 @@ function renderStartMenu(showContinue){
   for(let r=0;r<2;r++){const row=document.createElement('div'); row.className='pickrow';
     for(let k=0;k<3;k++){const i=r*3+k,civ=CIVS[i]; const d=document.createElement('div'); d.className='pick'+(i===selCivIndex?' sel':''); d.innerHTML="<div class='em'>"+civ.em+"</div><div class='nm'>"+civ.name+"</div><div class='ds'>"+civ.leader+"</div><div class='ds' style='color:var(--gold);font-size:10px;margin-top:2px;'>"+civ.tdesc+"</div>"; d.onclick=()=>{selCivIndex=i; if(selRivals>CIVS.length-1) selRivals=CIVS.length-1; renderStartMenu(showContinue);}; row.appendChild(d);}
     cp.appendChild(row);}
+  const mp2=$('mappick');
+  if(mp2) for(const mt of MAPTYPES){const el=document.createElement('div'); el.className='pick'+(mt.id===selMapType?' sel':''); el.innerHTML="<div class='em'>"+mt.em+"</div><div class='nm'>"+mt.nm+"</div>"; el.onclick=()=>{selMapType=mt.id; renderStartMenu(showContinue);}; mp2.appendChild(el);}
   const rp=$('rivpick'); const maxRiv=CIVS.length-1;
   for(let n=1;n<=maxRiv;n++){const el=document.createElement('div'); el.className='pick'+(n===selRivals?' sel':''); el.innerHTML="<div class='em'>"+(n>=4?"⚔️":"🚩")+"</div><div class='nm'>"+n+"</div><div class='ds'>"+(n===1?"rival":"rivals")+"</div>"; el.onclick=()=>{selRivals=n; renderStartMenu(showContinue);}; rp.appendChild(el);}
   const dp=$('diffpick');
@@ -3098,7 +3174,7 @@ function renderStartMenu(showContinue){
 }
 function startNewGame(){
   const seed=(Date.now()^(Math.random()*1e9))>>>0;
-  newGame(seed,selCivIndex,selDiff,selRivals,selMods);
+  newGame(seed,selCivIndex,selDiff,selRivals,Object.assign({},selMods,{mapType:selMapType}));
   hideOverlay('startmenu'); document.getElementById('banner').style.display='none';
   updateHUD(); nextUnit();
   toast("Welcome, "+G.players[0].leader+". "+selRivals+" rival"+(selRivals>1?"s":"")+" await — found your first city!");
@@ -3111,9 +3187,11 @@ function boot(){
   document.getElementById('btn-tech').onclick=()=>{if(!G) return; sfx("click"); renderTechScreen(); showOverlay('techscreen');};
   document.getElementById('btn-dip').onclick=()=>{if(!G) return; sfx("click"); renderDipScreen(); showOverlay('dipscreen');};
   document.getElementById('btn-pol').onclick=()=>{if(!G) return; sfx("click"); renderPolScreen(); showOverlay('polscreen');};
+  document.getElementById('btn-graph').onclick=()=>{if(!G) return; sfx("click"); renderGraph(); showOverlay('graphscreen');};
   document.getElementById('z-in').onclick=()=>{sfx("click"); zoomBy(1.25);};
   document.getElementById('z-out').onclick=()=>{sfx("click"); zoomBy(0.8);};
   document.getElementById('z-fs').onclick=()=>{sfx("click"); toggleFullscreen();};
+  const _zm=document.getElementById('z-mu'); if(_zm){ _zm.textContent=MUS.on?"\uD83C\uDFB5":"\uD83D\uDD07"; _zm.onclick=()=>{initAudio(); musicToggle();}; }
   document.addEventListener('fullscreenchange',()=>{try{resize();}catch(e){}});
   document.addEventListener('webkitfullscreenchange',()=>{try{resize();}catch(e){}});
   document.getElementById('btn-cities').onclick=()=>{if(!G) return; sfx("click"); renderCityList(); showOverlay('citylist');};
