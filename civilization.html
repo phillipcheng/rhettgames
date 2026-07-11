@@ -472,7 +472,7 @@ const CIVS=[
   {name:"Egypt",leader:"Cleopatra",color:"#e8b44a",em:"🐍",trait:"Monument Builders",tdesc:"Wonders \u221235% \u00B7 War Chariots",t:{wonderDisc:0.65},uu:{base:"chariot",id:"warchariot"}},
   {name:"Greece",leader:"Pericles",color:"#39c2c9",em:"🏛️",trait:"Philosophers",tdesc:"+30% science \u00B7 Hoplites",t:{sci:1.3},uu:{base:"spear",id:"hoplite"}},
   {name:"China",leader:"Wu Zetian",color:"#e8503f",em:"🐉",trait:"Middle Kingdom",tdesc:"Great People +50% \u00B7 Chu-Ko-Nu",t:{gpp:1.5},uu:{base:"archer",id:"chukonu"}},
-  {name:"Mongolia",leader:"Genghis",color:"#c07be8",em:"🐎",trait:"The Horde",tdesc:"Mounted +2 move \u00B7 Keshiks",t:{mountedMove:2},uu:{base:"horse",id:"keshik"}},
+  {name:"Mongolia",leader:"Genghis",color:"#c07be8",em:"🐎",trait:"The Horde",tdesc:"Mounted: +2 move \u00B7 +20% atk \u00B7 heal on kill",t:{mountedMove:2,mountedAtk:1.2,mountedHeal:15},uu:{base:"horse",id:"keshik"}},
   {name:"Maya",leader:"Pacal",color:"#5fcf80",em:"☀️",trait:"The Long Count",tdesc:"+50% culture \u00B7 Jaguars",t:{cul:1.5},uu:{base:"warrior",id:"jaguar"}}
 ];
 const CITY_NAMES=["Aurelia","Highspire","Ravenmoor","Goldreach","Stormhold","Westbrook","Ironforge","Sunhaven","Thornwall","Lakeshire","Brightwater","Stonegate","Fairmont","Eastvale","Duskwood","Greymarch","Silverpond","Redcliff","Oakhollow","Frostvale","Mistral","Caldera"];
@@ -858,6 +858,7 @@ function combatForecast(att,target){
   const tu=unitAt(target),tc=cityAt(target),ranged=!!UNITS[att.type].ranged;
   let aStr=unitStrength(att,true)*aiCombatMult(att.owner); const out={ranged:ranged};
   { const _ft=civT(att.owner); if(_ft.atk) aStr*=_ft.atk;
+    if(UNITS[att.type].mounted&&_ft.mountedAtk) aStr*=_ft.mountedAtk;
     const _tu=unitAt(target),_tc=cityAt(target),_ow=_tu?_tu.owner:(_tc?_tc.owner:null);
     if(att.owner===0&&_ow===G.nemesis) aStr*=1.15; }
   if(tu){
@@ -2053,6 +2054,7 @@ function doCombat(att,targetIdx,ranged){
   if(_defOwner!=null&&_defOwner>=0&&att.owner>=0&&_defOwner!==att.owner&&!isAtWar(att.owner,_defOwner)) declareWar(att.owner,_defOwner);
   if(att.embarked){ if(att.owner===0) toast("\uD83D\uDEF6 Embarked units cannot fight \u2014 reach land first."); return; }
   let aStr=unitStrength(att,true)*aiCombatMult(att.owner); const _aT=civT(att.owner); if(_aT.atk) aStr*=_aT.atk;
+  if(UNITS[att.type].mounted&&_aT.mountedAtk) aStr*=_aT.mountedAtk;
   if(att.owner===0&&_defOwner===G.nemesis) aStr*=1.15;
   sfx(ranged?"shoot":"attack"); shake(6);
   if(tu){
@@ -2063,7 +2065,7 @@ function doCombat(att,targetIdx,ranged){
     const dmgToDef=Math.round(clamp(26*Math.pow(ratio,1.35)*rrange(0.85,1.15),3,80));
     tu.hp-=dmgToDef; floatText(targetIdx,"-"+dmgToDef,"#ff7d6e"); fx_hit(targetIdx);
     if(!ranged){let dmgToAtt=Math.round(clamp(18*Math.pow(1/ratio,1.35)*rrange(0.85,1.15),2,55)); if(tu.hp<=0) dmgToAtt=Math.round(dmgToAtt*0.3); att.hp-=dmgToAtt; floatText(att.tile,"-"+dmgToAtt,"#ffd27d");}
-    if(tu.hp<=0){fx_die(targetIdx); const tname=UNITS[tu.type].name,tonwer=tu.owner; removeUnit(tu); if(!ranged&&!cityAt(targetIdx)&&att.hp>0&&moveCost(targetIdx,att)<99) moveUnitInstant(att,targetIdx); if(att.hp>0){att.xp=(att.xp||0)+2; checkPromotion(att); checkHero(att);}
+    if(tu.hp<=0){fx_die(targetIdx); const tname=UNITS[tu.type].name,tonwer=tu.owner; removeUnit(tu); if(!ranged&&!cityAt(targetIdx)&&att.hp>0&&moveCost(targetIdx,att)<99) moveUnitInstant(att,targetIdx); if(att.hp>0){att.xp=(att.xp||0)+2; checkPromotion(att); checkHero(att); const _mh=civT(att.owner).mountedHeal; if(_mh&&UNITS[att.type].mounted){ att.hp=Math.min(att.maxhp,att.hp+_mh); if(att.owner===0) floatText(att.tile,"+"+_mh,"#7dffb0"); }}
       if(att.owner===0&&tonwer>0&&G.players[tonwer]&&!G.players[tonwer].minor){ questEvent("kill",tonwer); favorKill(tonwer); }
       if(tu.warlord) warlordSlain(att.owner===0);
       if(att.owner===0) toast("Enemy "+tname+" destroyed!"); else if(tonwer===0) toast("Your "+tname+" was lost"+(att.owner<0?" to barbarians!":"!"));}
