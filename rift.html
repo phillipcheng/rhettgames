@@ -314,8 +314,8 @@ var CHAMPS = {
   ashka: {
     id:'ashka', name:'ASHKA', role:'Frost Mage', melee:false, accent:'#8fd8ff',
     blurb:'The Frostweaver. Freezes lanes solid and buries foes in blizzards.',
-    base:{ hp:560, hpReg:6.5, mana:420, mpReg:10, ad:52, as:0.72, range:300, armor:22, mr:30, ms:196 },
-    grow:{ hp:82, hpReg:0.6, mana:46, mpReg:0.8, ad:2.8, as:0.02, armor:2.8, mr:1.4 },
+    base:{ hp:560, hpReg:6.5, mana:420, mpReg:10, ad:58, as:0.76, range:310, armor:22, mr:30, ms:196 },
+    grow:{ hp:82, hpReg:0.6, mana:46, mpReg:0.8, ad:3.3, as:0.024, armor:2.8, mr:1.4 },
     abilities:[
       { key:'Q', name:'Frost Bolt', cd:4.5, mana:30, range:340, desc:'Icy bolt: damage + slow' },
       { key:'W', name:'Frost Nova', cd:9, mana:50, range:0, desc:'Ice burst around you: damage + heavy slow' },
@@ -1563,26 +1563,27 @@ var ABILITY_FN = {
       if(t){ tx=t.x; ty=t.y; } else { var fv=facingVec(c); tx=c.x+fv.x*320; ty=c.y+fv.y*320; }
       var rk=abilityRank(c,'q');
       spawnProjectile({ team:c.team, src:c, x:c.x, y:c.y, tx:tx, ty:ty, speed:580, range:380,
-        dmg:60+22*rk+0.6*(c.ap||0), type:'magic', radius:7, color:'#9adcff',
-        slowHit:true, slowAmt:0.35, slowDur:1.5 });
+        dmg:78+28*rk+0.75*(c.ap||0), type:'magic', radius:8, color:'#9adcff',
+        slowHit:true, slowAmt:0.40, slowDur:1.8 });
       Audio.play('cast_magic'); return true; },
-    w:function(c){ var rk=abilityRank(c,'w'); var dmg=55+20*rk+0.5*(c.ap||0);
-      spawnRing(c.x,c.y,'#9adcff',170); spawnRing(c.x,c.y,'#ffffff',110); Audio.play('cast_magic');
+    w:function(c){ var rk=abilityRank(c,'w'); var dmg=70+26*rk+0.65*(c.ap||0);
+      spawnRing(c.x,c.y,'#9adcff',190); spawnRing(c.x,c.y,'#ffffff',120); Audio.play('cast_magic');
       var arr=allUnits(),i,u;
       for(i=0;i<arr.length;i++){ u=arr[i];
-        if(unitAlive(u) && isEnemyTeam(c.team,u.team) && dist(c.x,c.y,u.x,u.y)<170+u.radius){
-          dealDamage(c,u,dmg,'magic',{showNum:u.kind==='champ'}); applySlow(u,0.5,2.0); } }
+        if(unitAlive(u) && isEnemyTeam(c.team,u.team) && dist(c.x,c.y,u.x,u.y)<190+u.radius){
+          dealDamage(c,u,dmg,'magic',{showNum:u.kind==='champ'}); applySlow(u,0.55,2.2); } }
       spawnBurst(c.x,c.y,'#cdeaff',20,180); return true; },
     e:function(c){ var d9=aimDir(c, 280); var rk=abilityRank(c,'e');
       spawnRing(c.x,c.y,'#9adcff',40); spawnTrail(c.x,c.y,'#9adcff');
       c.x=clamp(c.x+Math.cos(d9)*240,16,WORLD.w-16); c.y=clamp(c.y+Math.sin(d9)*240,16,WORLD.h-16);
-      c.shield=Math.max(c.shield, Math.round(40+15*rk+0.25*(c.ap||0)));
+      c.shield=Math.max(c.shield, Math.round(65+24*rk+0.35*(c.ap||0)));
+      c.msBoostUntil=G.t+1.5; c.msBoost=0.30;
       spawnRing(c.x,c.y,'#9adcff',56); Audio.play('dash');
       floatText(c.x,c.y-c.radius-8,'GLACIAL STEP','#9adcff',12); return true; },
     r:function(c){ var t=aimTarget(c, 380), bx, by;
       if(t){ bx=t.x; by=t.y; } else { var fv2=facingVec(c); bx=c.x+fv2.x*260; by=c.y+fv2.y*260; }
       var rk=abilityRank(c,'r');
-      G.blizz={ x:bx, y:by, until:G.t+3.2, next:0, src:c, rk:rk, r:260 };
+      G.blizz={ x:bx, y:by, until:G.t+3.6, next:0, src:c, rk:rk, r:290 };
       banner(c.isPlayer?'\u2744 BLIZZARD!':'ASHKA calls a BLIZZARD!', '#9adcff');
       spawnRing(bx,by,'#9adcff',260); Audio.play('ult'); shake(0.4,10); return true; }
   },
@@ -2932,8 +2933,8 @@ function update(dt){
           var bza=allUnits(), bzi, bzu;
           for(bzi=0;bzi<bza.length;bzi++){ bzu=bza[bzi];
             if(unitAlive(bzu) && isEnemyTeam(bz.src.team,bzu.team) && dist(bz.x,bz.y,bzu.x,bzu.y)<bz.r+bzu.radius){
-              dealDamage(bz.src,bzu,34+10*bz.rk+0.22*(bz.src.ap||0),'magic',{showNum:false});
-              applySlow(bzu,0.55,0.9); } }
+              dealDamage(bz.src,bzu,44+14*bz.rk+0.30*(bz.src.ap||0),'magic',{showNum:false});
+              applySlow(bzu,0.65,1.0); } }
           spawnRing(bz.x+rand(-140,140), bz.y+rand(-140,140), '#cdeaff', 40); } } }
     updateEscort(dt);
     if(!G.raid && !G.duel && !G.bossPhase && !G.goblin && G.t>=G.goblinNextT){ spawnGoblin(); }
