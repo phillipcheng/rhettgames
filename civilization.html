@@ -518,7 +518,7 @@ function newGame(seed,civIndex,diffKey,rivals,mods){
     revealAround(s,k,3);
   }
   placeCityStates(3);
-  G.nemesis=null; G.nemesisSlainBy=null; G.congress={next:20,points:{},host:null}; G.religion={belief:null,name:null}; G.horde={up:false,slain:false};
+  G.nemesis=null; G.nemesisSlainBy=null; G.congress={next:20,points:{},host:null}; G.religion={belief:null,name:null}; G.horde={up:false,slain:false}; G.stats={bw:0,ul:0,cf:0,cc:0,cr:0,hr:0}; G._report=[];
   if(G.diff==="chill") G.players[0].gold+=40;
   recomputeVisibility(); centerOn(starts[0]); applyStartZoom(); saveGame();
   return G;
@@ -644,6 +644,7 @@ function cityName(owner){
   return "Town "+G.nextCityId;
 }
 function foundCity(unit){
+  if(unit&&unit.owner===0) stat("cf"); else if(unit&&unit.owner>0&&G.players[unit.owner]&&!G.players[unit.owner].minor) reportAdd(G.players[unit.owner].civ+" founded a new city");
   const i=unit.tile;
   if(cityAt(i)){toast("A city already stands here."); return;}
   if(!TERR[G.map[i].t].land||TERR[G.map[i].t].block){toast("Can't settle on water or peaks."); return;}
@@ -1071,6 +1072,40 @@ function pickGP(k){
   fxAfterGP(); saveGame(); flushGP();
 }
 function fxAfterGP(){ updateHUD(); if(G.selCity!=null){const c=G.cities.find(x=>x.id===G.selCity); if(c&&isOpen("cityscreen")) renderCityScreen(c);} }
+/* ---- wonder quotes ---- */
+const WQUOTES={
+ pyramids:{q:"Man fears Time, yet Time fears the Pyramids.",a:"Arab proverb"},
+ manhattan:{q:"Now I am become Death, the destroyer of worlds.",a:"J. Robert Oppenheimer"},
+ greatlib:{q:"The house of healing for the soul.",a:"Inscription at Alexandria"},
+ hanging:{q:"I built a garden reaching to the sky, for my queen who longed for mountains.",a:"attributed to Nebuchadnezzar II"},
+ colossus:{q:"To you, O Sun, the people of Rhodes raised this bronze to the heavens.",a:"Dedication of the Colossus"},
+ greatwall:{q:"He who has not climbed the Great Wall is not a true man.",a:"Chinese proverb"},
+ artemis:{q:"I have seen the walls of Babylon, but when I saw the temple of Artemis, all other wonders lost their brilliancy.",a:"Antipater of Sidon"},
+ lighthouse:{q:"A tower of stone that turns night into day.",a:"of the Pharos of Alexandria"},
+ stonehenge:{q:"The stones are great, and magic power they have.",a:"Layamon"},
+ oracle:{q:"Know thyself.",a:"Inscription at Delphi"},
+ machu:{q:"A city in the clouds, where eagles nest among the stones.",a:"of Machu Picchu"},
+ petra:{q:"A rose-red city half as old as time.",a:"John William Burgon"},
+ suntzu:{q:"The supreme art of war is to subdue the enemy without fighting.",a:"Sun Tzu"},
+ hagia:{q:"Solomon, I have outdone thee.",a:"Justinian I"}
+};
+/* ---- chronicle: stats, hall of fame, turn report ---- */
+function stat(k,n){ if(!G.stats) G.stats={bw:0,ul:0,cf:0,cc:0,cr:0,hr:0}; G.stats[k]=(G.stats[k]||0)+(n||1); }
+function reportAdd(msg){ if(!G._report) G._report=[]; if(G._report.length<8) G._report.push(msg); }
+function flushReport(){
+  if(!G._report||!G._report.length) return;
+  const n=G._report.length;
+  toast("\uD83D\uDDDE\uFE0F "+G._report.slice(0,2).join(" \u00B7 ")+(n>2?" \u00B7 +"+(n-2)+" more":""));
+  G._report=[];
+}
+function hofSave(entry){
+  try{
+    const raw=localStorage.getItem("empireHOF"); const arr=raw?JSON.parse(raw):[];
+    arr.unshift(entry); while(arr.length>12) arr.pop();
+    localStorage.setItem("empireHOF",JSON.stringify(arr));
+  }catch(e){}
+}
+function hofLoad(){ try{ const raw=localStorage.getItem("empireHOF"); return raw?JSON.parse(raw):[]; }catch(e){ return []; } }
 /* ---- the barbarian horde ---- */
 const WARLORD_NAMES=["Gruk the Devourer","Skarn Bloodmaw","Vorga the Endless","Thok Skullsplitter","Urzag the Storm"];
 function stepHorde(){
@@ -1330,7 +1365,7 @@ function offerAnnexRaze(city){
   el.querySelectorAll('.promo-opt').forEach(btn=>{btn.onclick=()=>{
     el.style.display='none';
     if(btn.getAttribute('data-c')==='raze'){
-      G.players[0].gold+=sack; city.razing=true; city.building={kind:"none"};
+      G.players[0].gold+=sack; city.razing=true; city.building={kind:"none"}; stat("cr");
       toast("\uD83D\uDD25 "+city.name+" is put to the torch \u2014 +"+sack+" gold sacked!");
       flashScreen("#e8503f",0.4); try{sfx("attack");}catch(e){}
     } else {
@@ -1645,6 +1680,7 @@ function checkHero(u){
   if(unitLevel(u)<4) return;
   u.hero=makeHeroName();
   if(u.owner===0){
+    stat("hr");
     showEvent("\u2B50","A LEGEND RISES","Your "+UNITS[u.type].name+" is now \u2B50 "+u.hero+" \u2014 a living legend. Allies fighting beside them strike 15% harder.",true);
     try{sfx("victory");}catch(e){} fx_grow(u.tile);
   }
@@ -1861,9 +1897,11 @@ function declareWar(a,b){
   pa.atWar[b]=true; pb.atWar[a]=true; pa._warTurns[b]=0; pb._warTurns[a]=0;
   if(a===0){ toast("\u2694\uFE0F You declared WAR on "+pb.leader+" of "+pb.civ+"!"); try{sfx("attack");}catch(e){} shake(8); }
   else if(b===0){ showEvent("\u2694\uFE0F","WAR!",pa.leader+" of "+pa.civ+" has declared war on you! Defend your cities.",false); try{sfx("attack");}catch(e){} shake(10); }
+  else if(!pa.minor&&!pb.minor) reportAdd(pa.civ+" declared war on "+pb.civ);
   saveGame();
 }
 function makePeace(a,b){
+  if(a>0&&b>0&&G.players[a]&&G.players[b]&&!G.players[a].minor&&!G.players[b].minor&&isAtWar(a,b)) reportAdd(G.players[a].civ+" and "+G.players[b].civ+" made peace");
   if(a===b||a<0||b<0) return; const pa=G.players[a],pb=G.players[b]; if(!pa||!pb) return;
   delete pa.atWar[b]; delete pb.atWar[a]; pa._warTurns[b]=0; pb._warTurns[a]=0;
   pa.peaceUntil[b]=G.turn+8; pb.peaceUntil[a]=G.turn+8;
@@ -2066,16 +2104,17 @@ function doCombat(att,targetIdx,ranged){
     tu.hp-=dmgToDef; floatText(targetIdx,"-"+dmgToDef,"#ff7d6e"); fx_hit(targetIdx);
     if(!ranged){let dmgToAtt=Math.round(clamp(18*Math.pow(1/ratio,1.35)*rrange(0.85,1.15),2,55)); if(tu.hp<=0) dmgToAtt=Math.round(dmgToAtt*0.3); att.hp-=dmgToAtt; floatText(att.tile,"-"+dmgToAtt,"#ffd27d");}
     if(tu.hp<=0){fx_die(targetIdx); const tname=UNITS[tu.type].name,tonwer=tu.owner; removeUnit(tu); if(!ranged&&!cityAt(targetIdx)&&att.hp>0&&moveCost(targetIdx,att)<99) moveUnitInstant(att,targetIdx); if(att.hp>0){att.xp=(att.xp||0)+2; checkPromotion(att); checkHero(att); const _mh=civT(att.owner).mountedHeal; if(_mh&&UNITS[att.type].mounted){ att.hp=Math.min(att.maxhp,att.hp+_mh); if(att.owner===0) floatText(att.tile,"+"+_mh,"#7dffb0"); }}
+      if(att.owner===0) stat("bw"); if(tonwer===0) stat("ul");
       if(att.owner===0&&tonwer>0&&G.players[tonwer]&&!G.players[tonwer].minor){ questEvent("kill",tonwer); favorKill(tonwer); }
       if(tu.warlord) warlordSlain(att.owner===0);
       if(att.owner===0) toast("Enemy "+tname+" destroyed!"); else if(tonwer===0) toast("Your "+tname+" was lost"+(att.owner<0?" to barbarians!":"!"));}
-    if(att.hp<=0){fx_die(att.tile); if(att.owner===0) toast("Your "+UNITS[att.type].name+" was lost."); removeUnit(att); if(tu&&tu.owner===0&&att.owner>0&&G.players[att.owner]&&!G.players[att.owner].minor) favorKill(att.owner); if(att.warlord) warlordSlain(!!(tu&&tu.owner===0));}
+    if(att.hp<=0){fx_die(att.tile); if(att.owner===0) toast("Your "+UNITS[att.type].name+" was lost."); removeUnit(att); if(att.owner===0) stat("ul"); else if(tu&&tu.owner===0) stat("bw"); if(tu&&tu.owner===0&&att.owner>0&&G.players[att.owner]&&!G.players[att.owner].minor) favorKill(att.owner); if(att.warlord) warlordSlain(!!(tu&&tu.owner===0));}
   } else if(tc){
     let dStr=cityStrength(tc)*aiCombatMult(tc.owner); if(UNITS[att.type].siege) dStr*=0.6;
     const ratio=aStr/dStr; const dmg=Math.round(clamp(26*Math.pow(ratio,1.3)*rrange(0.85,1.15),4,60));
     tc.hp=clamp(tc.hp-dmg, att.owner<0?1:0, tc.maxhp); floatText(targetIdx,"-"+dmg,"#ff7d6e"); fx_hit(targetIdx);
     if(att.owner<0&&tc.owner===0) toast(tc.name+" is being raided by barbarians!");
-    if(!ranged){let back=Math.round(clamp(16*Math.pow(1/ratio,1.2)*rrange(0.8,1.2),2,40)); att.hp-=back; floatText(att.tile,"-"+back,"#ffd27d"); if(att.hp<=0){fx_die(att.tile); removeUnit(att); if(tc&&tc.owner===0&&att.owner>0&&G.players[att.owner]&&!G.players[att.owner].minor) favorKill(att.owner); if(att.warlord) warlordSlain(!!(tc&&tc.owner===0));}}
+    if(!ranged){let back=Math.round(clamp(16*Math.pow(1/ratio,1.2)*rrange(0.8,1.2),2,40)); att.hp-=back; floatText(att.tile,"-"+back,"#ffd27d"); if(att.hp<=0){fx_die(att.tile); removeUnit(att); if(att.owner===0) stat("ul"); else if(tc&&tc.owner===0) stat("bw"); if(tc&&tc.owner===0&&att.owner>0&&G.players[att.owner]&&!G.players[att.owner].minor) favorKill(att.owner); if(att.warlord) warlordSlain(!!(tc&&tc.owner===0));}}
     if(tc.hp<=0&&att.owner>=0&&!ranged&&att.hp>0) captureCity(tc,att);
     else if(tc.hp<=0&&att.owner===0) toast(tc.name+" is at the brink — strike with a melee unit to capture!");
   }
@@ -2093,7 +2132,7 @@ function captureCity(city,byUnit){
   if(byUnit.owner===0) toast("Captured "+city.name+"!"); else toast(city.name+" has fallen to "+G.players[byUnit.owner].leader+"!");
   if(G.players[_old]&&G.players[_old].minor&&byUnit.owner===0){ for(const q of G.players){ if(q.minor&&!q.defeated&&q.id!==_old) q.influence=Math.max(0,(q.influence||0)-30);} toast("The remaining city-states denounce your conquest!"); }
   if(_old===G.nemesis&&byUnit.owner===0&&!G.cities.some(cc=>cc.owner===_old)) G.nemesisSlainBy=0;
-  if(byUnit.owner===0) offerAnnexRaze(city);
+  if(byUnit.owner===0){ stat("cc"); offerAnnexRaze(city); }
 }
 
 /* ---- worker ---- */
@@ -2168,6 +2207,7 @@ function endRound(){
   // Refresh units for the new round.
   for(const u of G.units){u.mp=UNITS[u.type].move+(u.promos&&u.promos.move?1:0)+(UNITS[u.type].mounted?(civT(u.owner).mountedMove||0):0); u.moved=false; u.attacked=false; if(u.train||u.trading){u.mp=0; u.moved=true;}}
   runAutomation();
+  flushReport();
   stepGoldenAge();
   stepCulture();
   stepCityStates();
@@ -2232,7 +2272,9 @@ function completeBuild(c){
     else {
       if(!G.wonderOwner) G.wonderOwner={}; G.wonderOwner[item.id]=c.owner; c.buildings[item.id]=true;
       if(wd.freeTech){const pl=G.players[c.owner],opts=TECHS.filter(t=>t.id!=="sflight"&&canResearch(pl,t)); if(opts.length){const t=pick(opts); pl.techs[t.id]=true; pl.researchedOrder.push(t.id); if(c.owner===0) toast("Great Library reveals "+t.name+"!");}}
-      if(c.owner===0){toast("✦ WONDER COMPLETE — "+wd.name+"!"); fx_found(c.tile); shake(10); sfx("victory"); gaBoost(10); questEvent("wonder",item.id);}
+      if(c.owner===0){toast("✦ WONDER COMPLETE — "+wd.name+"!"); fx_found(c.tile); shake(10); sfx("victory"); gaBoost(10); questEvent("wonder",item.id);
+        const _wq=WQUOTES[item.id]; if(_wq) showEvent("\u2728",wd.name.toUpperCase(),"<i style='font-size:15px'>\u201C"+_wq.q+"\u201D</i><br><span style='color:var(--dim)'>\u2014 "+_wq.a+"</span>",true);
+      } else if(!G.players[c.owner].minor) reportAdd(G.players[c.owner].civ+" completed the "+wd.name);
       else toast(G.players[c.owner].leader+" has completed "+wd.name+"!");
       c.building=dequeueBuild(c)||pickSmartBuild(c);
     }
@@ -2465,7 +2507,9 @@ function endGame(win,title,lead){
   document.getElementById('banner-title').textContent=title;
   document.getElementById('banner-title').style.color=win?"var(--gold)":"var(--crimson)";
   var sc=scoreOf(0),nc=G.cities.filter(function(c){return c.owner===0;}).length,nt=Object.keys(G.players[0].techs).length,nw=0; for(var wk in (G.wonderOwner||{})){if(G.wonderOwner[wk]===0)nw++;}
-  document.getElementById('banner-lead').innerHTML=lead+"<br><br><span style='color:var(--gold);font-weight:800;font-size:17px'>Final Score "+sc+"</span><br><span style='color:var(--dim);font-size:13px'>"+nc+" cities \u00B7 "+nt+" techs \u00B7 "+nw+" wonders \u00B7 reached turn "+G.turn+"</span>"; b.style.display='flex';
+  const st=G.stats||{};
+  document.getElementById('banner-lead').innerHTML=lead+"<br><br><span style='color:var(--gold);font-weight:800;font-size:17px'>Final Score "+sc+"</span><br><span style='color:var(--dim);font-size:13px'>"+nc+" cities \u00B7 "+nt+" techs \u00B7 "+nw+" wonders \u00B7 reached turn "+G.turn+"</span><br><span style='color:var(--dim);font-size:12.5px'>\u2694 "+(st.bw||0)+" battles won \u00B7 "+(st.ul||0)+" units lost \u00B7 \uD83C\uDFD9 "+(st.cf||0)+" founded / "+(st.cc||0)+" captured / "+(st.cr||0)+" razed \u00B7 \u2B50 "+(st.hr||0)+" legends</span>"; b.style.display='flex';
+  hofSave({civ:G.players[0].civ,em:G.players[0].em,win:!!win,title:title,turn:G.turn,score:sc,d:Date.now()});
   sfx(win?"victory":"defeat"); try{localStorage.removeItem(SAVE_KEY);}catch(e){}
 }
 function scoreOf(owner){
@@ -2992,14 +3036,14 @@ function saveGame(){
   try{
     const s={map:G.map.map(t=>({t:t.t,res:t.res,owner:t.owner,ownerCity:t.ownerCity,improv:t.improv,road:t.road,ruin:t.ruin,camp:t.camp,nat:t.nat,natDiscovered:t.natDiscovered,explored:t.explored,visible:t.visible,elev:t.elev})),
       players:G.players,turn:G.turn,cur:G.cur,seed:G.seed,diff:G.diff,units:G.units.map(u=>Object.assign({},u)),cities:G.cities.map(c=>Object.assign({},c)),
-      nextUnitId:G.nextUnitId,nextCityId:G.nextCityId,era:G.era,over:G.over,cityNamePool:G.cityNamePool,wonderOwner:G.wonderOwner,mods:G.mods,nemesis:G.nemesis==null?null:G.nemesis,nemesisSlainBy:G.nemesisSlainBy==null?null:G.nemesisSlainBy,congress:G.congress||null,religion:G.religion||null,horde:G.horde||null};
+      nextUnitId:G.nextUnitId,nextCityId:G.nextCityId,era:G.era,over:G.over,cityNamePool:G.cityNamePool,wonderOwner:G.wonderOwner,mods:G.mods,nemesis:G.nemesis==null?null:G.nemesis,nemesisSlainBy:G.nemesisSlainBy==null?null:G.nemesisSlainBy,congress:G.congress||null,religion:G.religion||null,horde:G.horde||null,stats:G.stats||null};
     localStorage.setItem(SAVE_KEY,JSON.stringify(s));
   }catch(e){}
 }
 function loadGame(){
   try{const raw=localStorage.getItem(SAVE_KEY); if(!raw) return false; const s=JSON.parse(raw); if(!s||!s.map||!s.players) return false;
     RNG=mulberry32((s.seed||1)>>>0);
-    G={map:s.map,players:s.players,turn:s.turn,cur:s.cur===1?1:0,seed:s.seed,diff:s.diff||"normal",units:s.units,cities:s.cities,nextUnitId:s.nextUnitId,nextCityId:s.nextCityId,era:s.era||"Ancient",over:!!s.over,cityNamePool:s.cityNamePool||CITY_NAMES.slice(),wonderOwner:s.wonderOwner||{},mods:s.mods||{},nemesis:(s.nemesis!=null?s.nemesis:null),nemesisSlainBy:(s.nemesisSlainBy!=null?s.nemesisSlainBy:null),congress:(s.congress||null),religion:(s.religion||null),horde:(s.horde||null),promoQueue:[],selUnit:null,selCity:null,anim:{shake:0,particles:[],floats:[]},log:[]};
+    G={map:s.map,players:s.players,turn:s.turn,cur:s.cur===1?1:0,seed:s.seed,diff:s.diff||"normal",units:s.units,cities:s.cities,nextUnitId:s.nextUnitId,nextCityId:s.nextCityId,era:s.era||"Ancient",over:!!s.over,cityNamePool:s.cityNamePool||CITY_NAMES.slice(),wonderOwner:s.wonderOwner||{},mods:s.mods||{},nemesis:(s.nemesis!=null?s.nemesis:null),nemesisSlainBy:(s.nemesisSlainBy!=null?s.nemesisSlainBy:null),congress:(s.congress||null),religion:(s.religion||null),horde:(s.horde||null),stats:(s.stats||null),promoQueue:[],selUnit:null,selCity:null,anim:{shake:0,particles:[],floats:[]},log:[]};
     for(const u of G.units){const p=xy(u.tile); if(u.px==null){u.px=p[0]; u.py=p[1];} u.promos=u.promos||{}; if(u._promoLvl==null) u._promoLvl=unitLevel(u);}
     for(const p of G.players){if(p._goldInc==null)p._goldInc=0; if(p._sciInc==null)p._sciInc=0; if(!p.atWar)p.atWar={}; if(!p.peaceUntil)p.peaceUntil={}; if(!p._warTurns)p._warTurns={}; if(p.dipCool==null)p.dipCool=0; if(p.gpp==null)p.gpp=0; if(p.gppNeed==null)p.gppNeed=25; if(p.gpCount==null)p.gpCount=0; if(p.culture==null)p.culture=0; if(p.minor&&p.influence==null)p.influence=0; if(p.favor==null)p.favor=0; if(p.culPool==null)p.culPool=0; if(!p.policies)p.policies={};}
     for(const c of G.cities){if(c.culture==null)c.culture=0; if(c.ring==null)c.ring=1;}
@@ -3007,6 +3051,8 @@ function loadGame(){
     if(!G.congress) G.congress={next:Math.max(20,G.turn+8),points:{},host:null};
     if(!G.religion) G.religion={belief:null,name:null};
     if(!G.horde) G.horde={up:false,slain:false};
+    if(!G.stats) G.stats={bw:0,ul:0,cf:0,cc:0,cr:0,hr:0};
+    G._report=[];
     recomputeVisibility();
     const c=G.cities.find(c=>c.owner===0),u=G.units.find(u=>u.owner===0); if(c) centerOn(c.tile); else if(u) centerOn(u.tile);
     applyStartZoom();
@@ -3027,6 +3073,11 @@ function renderStartMenu(showContinue){
   html+="<div class='sectlbl'>Difficulty</div><div class='pickrow' id='diffpick'></div>";
   html+="<div class='sectlbl'>Modifiers <span style='color:var(--faint);font-weight:500;text-transform:none;letter-spacing:0'>— optional, tap to toggle</span></div><div class='pickrow' id='modpick'></div>";
   html+="<button id='btn-newgame' style='width:100%;padding:14px;border-radius:12px;border:1px solid var(--line);cursor:pointer;background:var(--panel2);color:var(--ink);font-weight:800;font-size:16px;margin-top:6px;'>Begin New Empire</button>";
+  const _hof=hofLoad();
+  if(_hof.length){
+    html+="<div style='margin-top:14px;font-size:12px;letter-spacing:1.5px;color:var(--dim);font-weight:800;'>\uD83C\uDFC6 HALL OF FAME</div>";
+    for(const h of _hof.slice(0,6)) html+="<div style='display:flex;gap:8px;align-items:center;font-size:13px;padding:5px 2px;border-bottom:1px solid rgba(255,255,255,0.05);'><span>"+(h.win?"\uD83C\uDFC6":"\uD83D\uDC80")+"</span><span>"+(h.em||"")+" <b>"+h.civ+"</b></span><span style='color:"+(h.win?"var(--gold)":"var(--crimson)")+";font-weight:700'>"+h.title+"</span><span style='color:var(--dim);margin-left:auto'>t"+h.turn+" \u00B7 "+h.score+"</span></div>";
+  }
   html+="<button id='btn-fullscreen' style='width:100%;padding:11px;border-radius:12px;border:1px solid var(--line);cursor:pointer;background:transparent;color:var(--dim);font-weight:700;font-size:14px;margin-top:10px;'>\u26F6 Fullscreen</button>";
   html+="<div style='font-size:11px;color:var(--faint);text-align:center;margin-top:6px;'>True fullscreen works in a browser (Safari/Chrome). Inside the Claude app this switches to Focus Mode.</div>";
   html+="<div class='hint'>Found cities, research technology, raise an army, and win by conquest, Spaceflight, 1000 Culture, hosting 3 World Congresses \uD83C\uDFDB\uFE0F, or a sworn Vendetta \uD83C\uDFAF.<br>Pinch to zoom · drag to pan · tap to act.</div>";
