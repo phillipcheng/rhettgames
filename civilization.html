@@ -366,6 +366,7 @@ let TILE=56;
 const TERR={
   ocean:{name:"Ocean",col:"#1c3a5e",col2:"#234a72",land:false,move:99,food:1,prod:0,gold:2,def:0},
   coast:{name:"Coast",col:"#245a7e",col2:"#2d6b90",land:false,move:99,food:1,prod:0,gold:2,def:0},
+  lake:{name:"Lake",col:"#2e6fa9",col2:"#3d84c2",land:false,move:99,food:2,prod:0,gold:1,def:0},
   grass:{name:"Grassland",col:"#3f6b35",col2:"#4a7a3d",land:true,move:1,food:2,prod:0,gold:0,def:0},
   plains:{name:"Plains",col:"#7a7733",col2:"#8a8740",land:true,move:1,food:1,prod:1,gold:0,def:0},
   forest:{name:"Forest",col:"#2c5230",col2:"#34603a",land:true,move:2,food:1,prod:2,gold:0,def:25},
@@ -615,6 +616,23 @@ function genMap(np,mtype){
     if(!ok) continue;
     map[ii].nat=natKeys[nwPlaced%natKeys.length]; nwPlaced++;
   }
+  // carve inland lakes — far from the sea
+  const lakeN=({continents:3,pangaea:4,archipelago:1,highlands:5})[mtype||"continents"]||3;
+  let lplaced=0,lguard=0;
+  while(lplaced<lakeN&&lguard++<500){
+    const lx=Math.floor(rrange(3,MAP_W-3)),ly=Math.floor(rrange(3,MAP_H-3)),li=idx(lx,ly);
+    const lt=map[li];
+    if(!TERR[lt.t].land||TERR[lt.t].block) continue;
+    let nearSea=false;
+    for(let dy=-2;dy<=2&&!nearSea;dy++)for(let dx=-2;dx<=2;dx++){
+      const jx=clamp(lx+dx,0,MAP_W-1),jy=clamp(ly+dy,0,MAP_H-1),j=idx(jx,jy);
+      if(map[j].t==="ocean"||map[j].t==="coast"||map[j].t==="lake"){nearSea=true;}
+    }
+    if(nearSea) continue;
+    lt.t="lake"; lt.res=null;
+    if(RNG()<0.6){ const j2=idx(lx+1,ly); const t2=map[j2]; if(TERR[t2.t].land&&!TERR[t2.t].block){ t2.t="lake"; t2.res=null; } }
+    lplaced++;
+  }
   return map;
 }
 function landScore(i){
@@ -748,6 +766,7 @@ function cityYields(city){
     if(gaActive()){ food=Math.round(food*1.25); prod=Math.round(prod*1.25); gold=Math.round(gold*1.25); sci=Math.round(sci*1.25); } }
   else { sci=Math.round(sci*1.5); }
   const foodNeed=city.pop*2;
+  for(const _ni of neighIdx(city.tile)){ if(G.map[_ni].t==="lake"){ food+=1; break; } }
   if(city.owner===0&&G.ideology==="order") prod=Math.round(prod*1.15);
   if(city.owner===0&&G.ideology==="freedom"){ gold+=2; sci+=1; }
   return {food,prod,gold,sci,foodNeed,foodSurplus:food-foodNeed,popcap};
