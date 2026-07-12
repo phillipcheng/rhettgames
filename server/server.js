@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
@@ -231,9 +232,25 @@ wss.on('connection', (ws, req) => {
 async function handleMessage(ws, c, msg){
   const t = msg.t;
 
+  if (t === 'request-reset') {
+    const result = await users.requestPasswordReset(msg.nameOrEmail);
+    if (!result.ok) return sendTo(ws, { t: 'reset-request-failed', error: result.error });
+    sendTo(ws, { t: 'reset-code-sent', userId: result.userId, name: result.name });
+    return;
+  }
+
+  if (t === 'reset-password') {
+    const result = await users.resetPassword(msg.userId, msg.code, msg.newPassword);
+    if (!result.ok) return sendTo(ws, { t: 'reset-failed', error: result.error });
+    sendTo(ws, { t: 'reset-ok' });
+    return;
+  }
+
   if (t === 'register' || t === 'login') {
-    const fn = t === 'register' ? users.register : users.login;
-    const result = await fn(msg.name, msg.password);
+    const fn = t === 'register'
+      ? () => users.register(msg.name, msg.password, msg.email)
+      : () => users.login(msg.name, msg.password);
+    const result = await fn();
     if (!result.ok) return sendTo(ws, { t: 'auth-failed', error: result.error });
     // If the user already has another socket logged in, close that one.
     const prevWs = userToWs.get(result.userId);

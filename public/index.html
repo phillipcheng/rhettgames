@@ -239,6 +239,13 @@
   #quitGameBtn .hint { color: #667; font-weight: normal; margin-left: 6px; font-size: 10px; }
   #quitGameBtn:hover .hint { color: #fdd; }
 
+  /* ========= Lobby panel tabs ========= */
+  .panel-tabs { display: flex; gap: 8px; border-bottom: 1px solid #2a2a40; margin-bottom: 10px; }
+  .panel-tab { background: none; border: none; color: #667; font-family: inherit; font-size: 13px;
+    letter-spacing: 2px; padding: 6px 14px; cursor: pointer; border-bottom: 2px solid transparent; }
+  .panel-tab:hover { color: #fff; }
+  .panel-tab.active { color: #ffcb3a; border-bottom-color: #ffcb3a; }
+
   /* ========= Leaderboard ========= */
   .leaderboard-table { width: 100%; font-size: 12px; }
   .leaderboard-table tr { border-bottom: 1px solid #2a2a40; }
@@ -482,12 +489,53 @@
       <label for="authName">NAME</label>
       <input id="authName" type="text" maxlength="16" autocomplete="username" placeholder="your name" />
     </div>
+    <div class="form-row" id="authEmailRow" style="display:none;">
+      <label for="authEmail">EMAIL</label>
+      <input id="authEmail" type="email" maxlength="254" autocomplete="email" placeholder="you@example.com" />
+    </div>
     <div class="form-row">
       <label for="authPass">PASSWORD</label>
       <input id="authPass" type="password" maxlength="128" autocomplete="current-password" placeholder="••••" />
     </div>
     <div id="authError" class="error-text"></div>
     <button class="btn" id="authBtn">LOGIN</button>
+    <div style="margin-top:10px;">
+      <a href="#" id="forgotLink" style="color:#888;font-size:12px;text-decoration:underline;">Forgot password?</a>
+    </div>
+  </div>
+
+  <!-- ============ FORGOT PASSWORD VIEW ============ -->
+  <div id="view-forgot" class="view" style="max-width:720px;">
+    <h1>RESET PASSWORD</h1>
+    <p>Enter your username or email to receive a reset code.</p>
+    <div class="form-row" style="margin-top:16px;">
+      <label for="resetQuery">NAME / EMAIL</label>
+      <input id="resetQuery" type="text" maxlength="254" placeholder="username or email" />
+    </div>
+    <div id="resetError" class="error-text"></div>
+    <button class="btn" id="resetSendBtn">SEND CODE</button>
+    <div style="margin-top:10px;">
+      <a href="#" id="backToLogin" style="color:#888;font-size:12px;text-decoration:underline;">Back to login</a>
+    </div>
+  </div>
+
+  <!-- ============ ENTER RESET CODE VIEW ============ -->
+  <div id="view-reset-code" class="view" style="max-width:720px;">
+    <h1>ENTER CODE</h1>
+    <p id="resetCodeHint">A reset code was sent to your email.</p>
+    <div class="form-row" style="margin-top:16px;">
+      <label for="resetCode">CODE</label>
+      <input id="resetCode" type="text" maxlength="6" placeholder="6-digit code" style="letter-spacing:4px;text-align:center;" />
+    </div>
+    <div class="form-row">
+      <label for="resetNewPass">NEW PASSWORD</label>
+      <input id="resetNewPass" type="password" maxlength="128" placeholder="new password" />
+    </div>
+    <div id="resetCodeError" class="error-text"></div>
+    <button class="btn" id="resetConfirmBtn">RESET PASSWORD</button>
+    <div style="margin-top:10px;">
+      <a href="#" id="backToLogin2" style="color:#888;font-size:12px;text-decoration:underline;">Back to login</a>
+    </div>
   </div>
 
   <!-- ============ LOBBY VIEW ============ -->
@@ -520,8 +568,16 @@
     </div>
 
     <div class="panel" style="width: 100%; margin-top: 16px;">
-      <div class="panel-title">LEADERBOARD</div>
-      <div id="leaderboard"></div>
+      <div class="panel-tabs">
+        <button class="panel-tab active" id="lobbyTabArcade">ARCADE</button>
+        <button class="panel-tab" id="lobbyTabLeaderboard">LEADERBOARD</button>
+      </div>
+      <div id="lobbyArcadePane">
+        <div id="lobbyArcadeList"></div>
+      </div>
+      <div id="lobbyLeaderboardPane" style="display:none;">
+        <div id="leaderboard"></div>
+      </div>
     </div>
   </div>
 

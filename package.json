@@ -9,7 +9,9 @@
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.9.0",
+    "dotenv": "^17.4.2",
     "geoip-lite": "^2.0.1",
+    "nodemailer": "^9.0.3",
     "ws": "^8.18.0"
   }
 }

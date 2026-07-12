@@ -144,17 +144,54 @@ db.exec(`
   if (!names.has('role'))          db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'player'");
   if (!names.has('locked'))        db.exec("ALTER TABLE users ADD COLUMN locked INTEGER NOT NULL DEFAULT 0");
   if (!names.has('total_play_ms')) db.exec("ALTER TABLE users ADD COLUMN total_play_ms INTEGER NOT NULL DEFAULT 0");
+  if (!names.has('email'))         db.exec("ALTER TABLE users ADD COLUMN email TEXT COLLATE NOCASE");
 })();
+
+// Password reset tokens table.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS password_resets (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    code       TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    used       INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_pw_resets_user ON password_resets(user_id, created_at DESC);
+`);
 
 // Seed rhett + phillip as admins if they exist.
 db.exec(`UPDATE users SET role = 'admin' WHERE name IN ('rhett', 'phillip') COLLATE NOCASE`);
 
 const stmts = {
   insertUser: db.prepare(
-    `INSERT INTO users (name, password_hash, created_at) VALUES (?, ?, ?)`
+    `INSERT INTO users (name, password_hash, email, created_at) VALUES (?, ?, ?, ?)`
   ),
   findUserByName: db.prepare(
-    `SELECT id, name, password_hash, role, locked FROM users WHERE name = ? COLLATE NOCASE`
+    `SELECT id, name, password_hash, role, locked, email FROM users WHERE name = ? COLLATE NOCASE`
+  ),
+  findUserByEmail: db.prepare(
+    `SELECT id, name, password_hash, role, locked, email FROM users WHERE email = ? COLLATE NOCASE`
+  ),
+  setUserEmail: db.prepare(
+    `UPDATE users SET email = ? WHERE id = ?`
+  ),
+  setUserPassword: db.prepare(
+    `UPDATE users SET password_hash = ? WHERE id = ?`
+  ),
+  insertResetCode: db.prepare(
+    `INSERT INTO password_resets (user_id, code, created_at) VALUES (?, ?, ?)`
+  ),
+  findResetCode: db.prepare(
+    `SELECT id, user_id, code, created_at, used FROM password_resets
+       WHERE user_id = ? AND code = ? AND used = 0
+       ORDER BY created_at DESC LIMIT 1`
+  ),
+  markResetUsed: db.prepare(
+    `UPDATE password_resets SET used = 1 WHERE id = ?`
+  ),
+  deleteExpiredResets: db.prepare(
+    `DELETE FROM password_resets WHERE created_at < ?`
   ),
   findUserById: db.prepare(
     `SELECT id, name, role, locked, total_play_ms, created_at, last_login_at FROM users WHERE id = ?`
@@ -280,9 +317,9 @@ const stmts = {
   )
 };
 
-export function createUser(name, passwordHash){
+export function createUser(name, passwordHash, email){
   const now = Date.now();
-  const info = stmts.insertUser.run(name, passwordHash, now);
+  const info = stmts.insertUser.run(name, passwordHash, email || null, now);
   return { id: info.lastInsertRowid, name, created_at: now };
 }
 
@@ -533,4 +570,34 @@ export function deleteSessionsForUser(userId){
 }
 export function deleteExpiredSessions(olderThanCreatedAt){
   stmts.deleteExpiredSessions.run(olderThanCreatedAt);
+}
+
+// -------- Email & Password Reset --------
+
+export function findUserByEmail(email){
+  return stmts.findUserByEmail.get(email) || null;
+}
+
+export function setUserEmail(id, email){
+  return stmts.setUserEmail.run(email, id).changes > 0;
+}
+
+export function setUserPassword(id, hash){
+  return stmts.setUserPassword.run(hash, id).changes > 0;
+}
+
+export function insertResetCode(userId, code){
+  stmts.insertResetCode.run(userId, code, Date.now());
+}
+
+export function findResetCode(userId, code){
+  return stmts.findResetCode.get(userId, code) || null;
+}
+
+export function markResetUsed(id){
+  stmts.markResetUsed.run(id);
+}
+
+export function deleteExpiredResets(olderThan){
+  stmts.deleteExpiredResets.run(olderThan);
 }

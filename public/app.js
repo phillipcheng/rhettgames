@@ -11,6 +11,8 @@ const quitGameBtn = document.getElementById('quitGameBtn');
 // Views
 const views = {
   login:   document.getElementById('view-login'),
+  forgot:  document.getElementById('view-forgot'),
+  'reset-code': document.getElementById('view-reset-code'),
   lobby:   document.getElementById('view-lobby'),
   room:    document.getElementById('view-room'),
   win:     document.getElementById('view-win'),
@@ -25,8 +27,22 @@ const views = {
 const tabs = document.querySelectorAll('.form-tab');
 const authName = document.getElementById('authName');
 const authPass = document.getElementById('authPass');
+const authEmail = document.getElementById('authEmail');
+const authEmailRow = document.getElementById('authEmailRow');
 const authBtn  = document.getElementById('authBtn');
 const authError = document.getElementById('authError');
+const forgotLink = document.getElementById('forgotLink');
+const resetQuery = document.getElementById('resetQuery');
+const resetError = document.getElementById('resetError');
+const resetSendBtn = document.getElementById('resetSendBtn');
+const backToLogin = document.getElementById('backToLogin');
+const resetCode = document.getElementById('resetCode');
+const resetNewPass = document.getElementById('resetNewPass');
+const resetCodeError = document.getElementById('resetCodeError');
+const resetConfirmBtn = document.getElementById('resetConfirmBtn');
+const backToLogin2 = document.getElementById('backToLogin2');
+const resetCodeHint = document.getElementById('resetCodeHint');
+let resetUserId = null;
 
 // Lobby UI
 const lobbyUserName = document.getElementById('lobbyUserName');
@@ -36,6 +52,11 @@ const createRoomBtn = document.getElementById('createRoomBtn');
 const logoutBtn = document.getElementById('logoutBtn');
 const refreshLobbyBtn = document.getElementById('refreshLobbyBtn');
 const leaderboardEl = document.getElementById('leaderboard');
+const lobbyArcadeListEl = document.getElementById('lobbyArcadeList');
+const lobbyArcadePane = document.getElementById('lobbyArcadePane');
+const lobbyLeaderboardPane = document.getElementById('lobbyLeaderboardPane');
+const lobbyTabArcade = document.getElementById('lobbyTabArcade');
+const lobbyTabLeaderboard = document.getElementById('lobbyTabLeaderboard');
 const devModeBtn = document.getElementById('devModeBtn');
 const adminBtn   = document.getElementById('adminBtn');
 const sysDevBtn  = document.getElementById('sysDevBtn');
@@ -339,6 +360,7 @@ tabs.forEach(t => t.addEventListener('click', () => {
   authTab = t.dataset.tab;
   for (const x of tabs) x.classList.toggle('active', x === t);
   authBtn.textContent = authTab === 'login' ? 'LOGIN' : 'REGISTER';
+  authEmailRow.style.display = authTab === 'register' ? '' : 'none';
   authError.textContent = '';
 }));
 
@@ -352,10 +374,45 @@ function submitAuth(){
   const name = authName.value.trim();
   const pass = authPass.value;
   if (!name || !pass) { authError.textContent = 'Enter name and password'; return; }
-  localStorage.setItem(SAVED_NAME_KEY, name);
-  send({ t: authTab, name, password: pass });
+  if (authTab === 'register') {
+    const email = authEmail.value.trim();
+    if (!email) { authError.textContent = 'Email is required for registration'; return; }
+    localStorage.setItem(SAVED_NAME_KEY, name);
+    send({ t: 'register', name, password: pass, email });
+  } else {
+    localStorage.setItem(SAVED_NAME_KEY, name);
+    send({ t: 'login', name, password: pass });
+  }
   authError.textContent = 'Signing in…';
 }
+
+// ============ Forgot Password UI ============
+forgotLink.addEventListener('click', e => {
+  e.preventDefault();
+  resetQuery.value = authName.value.trim();
+  resetError.textContent = '';
+  showView('forgot');
+});
+backToLogin.addEventListener('click', e => { e.preventDefault(); showView('login'); });
+backToLogin2.addEventListener('click', e => { e.preventDefault(); showView('login'); });
+
+resetSendBtn.addEventListener('click', () => {
+  const q = resetQuery.value.trim();
+  if (!q) { resetError.textContent = 'Enter your username or email'; return; }
+  send({ t: 'request-reset', nameOrEmail: q });
+  resetError.textContent = 'Sending…';
+});
+resetQuery.addEventListener('keydown', e => { if (e.key === 'Enter') resetSendBtn.click(); });
+
+resetConfirmBtn.addEventListener('click', () => {
+  const code = resetCode.value.trim();
+  const pw = resetNewPass.value;
+  if (!code || !pw) { resetCodeError.textContent = 'Enter code and new password'; return; }
+  send({ t: 'reset-password', userId: resetUserId, code, newPassword: pw });
+  resetCodeError.textContent = 'Resetting…';
+});
+resetCode.addEventListener('keydown', e => { if (e.key === 'Enter') resetNewPass.focus(); });
+resetNewPass.addEventListener('keydown', e => { if (e.key === 'Enter') resetConfirmBtn.click(); });
 
 // ============ Lobby UI ============
 logoutBtn.addEventListener('click', () => {
@@ -585,24 +642,42 @@ function renderAdminLog(actions){
 devBackBtn.addEventListener('click', () => showView('lobby'));
 
 // Unified "online games" list (every published game, yours pinned first).
+// Rendered both in Dev Mode (availableList) and the lobby ARCADE tab.
 let publishedGamesCache = [];
 function renderAvailableList(){
-  availableListEl.innerHTML = '';
-  if (publishedGamesCache.length === 0) {
-    availableListEl.innerHTML = '<div class="empty-list">(nothing published yet — upload an HTML file below to start)</div>';
-    return;
-  }
   const sorted = publishedGamesCache.slice().sort((a, b) => {
     const am = session && a.author_user_id === session.userId ? 0 : 1;
     const bm = session && b.author_user_id === session.userId ? 0 : 1;
     if (am !== bm) return am - bm;
     return (b.released_at || 0) - (a.released_at || 0);
   });
-  for (const p of sorted) {
-    const mine = session && p.author_user_id === session.userId;
-    availableListEl.appendChild(publishedRow(p, mine));
-  }
+  const fill = (el, emptyMsg) => {
+    if (!el) return;
+    el.innerHTML = '';
+    if (sorted.length === 0) {
+      el.innerHTML = '<div class="empty-list">' + emptyMsg + '</div>';
+      return;
+    }
+    for (const p of sorted) {
+      const mine = session && p.author_user_id === session.userId;
+      el.appendChild(publishedRow(p, mine));
+    }
+  };
+  fill(availableListEl, '(nothing published yet — upload an HTML file below to start)');
+  fill(lobbyArcadeListEl, '(no games published yet)');
 }
+
+// Lobby ARCADE / LEADERBOARD tabs
+function setLobbyTab(tab){
+  const arcade = tab === 'arcade';
+  lobbyTabArcade.classList.toggle('active', arcade);
+  lobbyTabLeaderboard.classList.toggle('active', !arcade);
+  lobbyArcadePane.style.display = arcade ? '' : 'none';
+  lobbyLeaderboardPane.style.display = arcade ? 'none' : '';
+  if (!arcade) fetchLeaderboard();
+}
+lobbyTabArcade.addEventListener('click', () => setLobbyTab('arcade'));
+lobbyTabLeaderboard.addEventListener('click', () => setLobbyTab('leaderboard'));
 
 function isMultiplayerBase(baseId){
   if (!baseId) return false;
@@ -1245,6 +1320,32 @@ function handleServerMessage(msg){
       authError.textContent = msg.error || 'auth failed';
       localStorage.removeItem(SAVED_TOKEN_KEY);
       if (!session) showView('login');
+      break;
+
+    case 'reset-code-sent':
+      resetUserId = msg.userId;
+      resetCodeHint.textContent = `A reset code was sent for ${msg.name}. Check your email.`;
+      resetCode.value = '';
+      resetNewPass.value = '';
+      resetCodeError.textContent = '';
+      showView('reset-code');
+      break;
+
+    case 'reset-request-failed':
+      resetError.textContent = msg.error || 'request failed';
+      break;
+
+    case 'reset-ok':
+      authError.textContent = '';
+      authPass.value = '';
+      showView('login');
+      authError.textContent = 'Password reset! Log in with your new password.';
+      authError.style.color = '#4f4';
+      setTimeout(() => { authError.style.color = ''; }, 5000);
+      break;
+
+    case 'reset-failed':
+      resetCodeError.textContent = msg.error || 'reset failed';
       break;
 
     case 'logged-out':
