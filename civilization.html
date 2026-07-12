@@ -729,6 +729,7 @@ function tileYield(i){
   const tt=G.map[i],base=TERR[tt.t]; let f=base.food,p=base.prod,g=base.gold;
   if(tt.res){const r=RES[tt.res]; f+=r.food; p+=r.prod; g+=r.gold;}
   if(tt.nat&&NATWONDERS[tt.nat]){const nw=NATWONDERS[tt.nat]; f+=nw.f; p+=nw.p; g+=nw.g;}
+  if(tt.improv==="boats") f+=3;
   if(tt.improv==="farm") f+=2+((tt.owner===0&&hasBelief("harvest"))?1:0);
   if(tt.improv==="mine") p+=2+((tt.owner===0&&hasBelief("forge"))?1:0);
   if(tt.improv==="pasture"){p+=1; f+=1;}
@@ -2260,6 +2261,10 @@ function workerBuild(unit,kind){
   if(kind==="mine"&&["hills"].indexOf(tt.t)<0){toast("Mines need hills."); return;}
   if(kind==="pasture"&&["plains","grass"].indexOf(tt.t)<0){toast("Pasture needs plains/grass."); return;}
   if(kind==="chop"&&tt.t!=="forest"){toast("You can only chop forests."); return;}
+  if(kind==="boats"){
+    if(tt.res!=="fish"){toast("Fishing boats need a \uD83D\uDC1F fish resource."); return;}
+    if(unit.owner===0&&!G.players[unit.owner].techs.pot){toast("\uD83C\uDFA3 Research Pottery \u2014 nets and hulls \u2014 before your people can fish."); return;}
+  }
   const turns=kind==="road"?2:3; unit.moved=true; unit.mp=0;
   if(G.mods&&G.mods.fastWork){ unit.work={kind,turns:1,left:1}; finishWorkerTask(unit); selectUnit(unit); updateHUD(); saveGame(); return; }
   unit.work={kind,turns,left:turns};
@@ -2864,6 +2869,7 @@ function renderSelPanel(){
       if(u.type==="worker"){const tt=G.map[u.tile].t;
         act.appendChild(mkBtn(u.auto?"\uD83E\uDD16 Auto-Improve \u2713":"\uD83E\uDD16 Auto-Improve",u.auto?"primary":"",()=>{u.auto=!u.auto; toast(u.auto?"Worker will improve the empire by itself each turn.":"Manual control restored."); if(u.auto&&!u.moved) aiWorkerAct(u,G.players[0]); renderSelPanel(); saveGame();}));
         if(["grass","plains","desert"].indexOf(tt)>=0) act.appendChild(mkBtn("Farm","",()=>workerBuild(u,"farm")));
+        if((tt==="coast"||tt==="ocean"||tt==="lake")&&G.map[u.tile].res==="fish"){ if(G.players[0].techs.pot) act.appendChild(mkBtn("\uD83C\uDFA3 Fishing Boats","primary",()=>workerBuild(u,"boats"))); else act.appendChild(mkBtn("\uD83C\uDFA3 Fish \u2014 needs Pottery","",()=>toast("Research \uD83C\uDFFA Pottery (nets & hulls) to unlock Fishing Boats."))); }
         if(tt==="hills") act.appendChild(mkBtn("Mine","",()=>workerBuild(u,"mine")));
         if(tt==="forest") act.appendChild(mkBtn("Chop","",()=>workerBuild(u,"chop")));
         if(["plains","grass"].indexOf(tt)>=0&&G.players[0].techs.hunt) act.appendChild(mkBtn("Pasture","",()=>workerBuild(u,"pasture")));
