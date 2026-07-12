@@ -169,6 +169,11 @@ var LANE_B=[ {x:380,y:1620},{x:640,y:1060},{x:1300,y:860},{x:1960,y:1040},{x:222
 var LANE_T2=[ {x:380,y:1620},{x:520,y:920},{x:1080,y:540},{x:1780,y:430},{x:2220,y:380} ];
 var BLUE_FOUNTAIN = {x:235,y:1760};
 var RED_FOUNTAIN  = {x:2365,y:240};
+var BUSHES=[ {x:980,y:900,w:170,h:110}, {x:1560,y:1240,w:170,h:110}, {x:1300,y:560,w:160,h:100}, {x:1840,y:980,w:160,h:100} ];
+function inBush(u){ var i,b;
+  for(i=0;i<BUSHES.length;i++){ b=BUSHES[i];
+    if(u.x>b.x && u.x<b.x+b.w && u.y>b.y && u.y<b.y+b.h){ return true; } }
+  return false; }
 
 /* ----- difficulty: tuned to make the game easier to win ----- */
 var EASE = {
@@ -346,13 +351,25 @@ var CHAMPS = {
       { key:'E', name:'Life Tether', cd:9, mana:50, range:300, desc:'Latch a foe: drains them, heals you' },
       { key:'R', name:'Sanctuary', cd:75, mana:100, range:0, desc:'Holy ground: allies heal fast, enemies crawl (5s)' }
     ]
+  },
+  cinder: {
+    id:'cinder', name:'CINDER', role:'Flame Herald', melee:false, accent:'#ff7a3c',
+    blurb:'Everything burns. Cinder just decides the order.',
+    base:{ hp:575, hpReg:6.8, mana:430, mpReg:10.5, ad:54, as:0.74, range:305, armor:23, mr:30, ms:198 },
+    grow:{ hp:84, hpReg:0.65, mana:47, mpReg:0.8, ad:3.0, as:0.022, armor:2.9, mr:1.5 },
+    abilities:[
+      { key:'Q', name:'Fireball', cd:4.5, mana:32, range:340, desc:'Explosive bolt that sets foes ablaze' },
+      { key:'W', name:'Flame Wave', cd:9, mana:52, range:230, desc:'Cone of fire \u2014 damage + burn' },
+      { key:'E', name:'Cinder Step', cd:8, mana:40, range:240, desc:'Dash, scorching everyone you pass' },
+      { key:'R', name:'Meteor Storm', cd:80, mana:100, range:380, desc:'Five meteors hammer an area over 2.5s' }
+    ]
   }
 };
-var CHAMP_ORDER = ['kael','sera','dax','thane','nyx','lumen','morgrim','fable','gor','ashka','vex','lyra'];
+var CHAMP_ORDER = ['kael','sera','dax','thane','nyx','lumen','morgrim','fable','gor','ashka','vex','lyra','cinder'];
 var SKIN_ALTS={
   kael:['#ff4c7a','#4cffe0'], sera:['#ffb84c','#c94cff'], dax:['#4cff7a','#ff4c4c'],
   thane:['#ffd84c','#4c9fff'], nyx:['#ff4cd8','#8aff4c'], lumen:['#4cffb8','#ff8a4c'],
-  morgrim:['#c9ff4c','#ff4ca0'], fable:['#4cd8ff','#ffe04c'], gor:['#ff9a4c','#9a7cff'], ashka:['#5cd0ff','#c9a0ff'], vex:['#ff5cf0','#5cffb0'], lyra:['#b0ff7f','#7fd8ff'] };
+  morgrim:['#c9ff4c','#ff4ca0'], fable:['#4cd8ff','#ffe04c'], gor:['#ff9a4c','#9a7cff'], ashka:['#5cd0ff','#c9a0ff'], vex:['#ff5cf0','#5cffb0'], lyra:['#b0ff7f','#7fd8ff'], cinder:['#ffd24c','#ff4c7a'] };
 function skinAccent(champId, base){
   var idx=parseInt(Store.get('rift_skin_'+champId,'0'),10)||0;
   if(idx>0 && cmRankFor(cmXp(champId))>=3 && SKIN_ALTS[champId]){ return SKIN_ALTS[champId][idx-1]||base; }
@@ -421,6 +438,7 @@ function unlockAch(id){ if(achHas(id)){ return; }
   try{ Store.set('rift_shards', ''+(((parseInt(Store.get('rift_shards','0'),10))||0)+2)); }catch(e8){}
   banner('\ud83c\udfc5 ACHIEVEMENT: '+nm+'!  (+2\ud83d\udc8e)', '#ffd166'); Audio.play('victory'); screenFlash('#ffd166',0.22); }
 var PASSIVES = {
+  cinder: { n:'Ignite', d:'Cinder\u2019s abilities set enemies on fire' },
   lyra: { n:'Overflow', d:'Lyra\u2019s heals also grant a small shield' },
   vex: { n:'Hunter of the Void', d:'Vex moves 8% faster (built into his speed)' },
   ashka: { n:'Permafrost', d:'All of Ashka\u2019s abilities chill \u2014 every hit slows' },
@@ -638,6 +656,7 @@ function initGame(champId, enemyId){
     blizz:null, eleBuff:null, goblin:null, goblinNextT:130, feed:[], overtime:false,
     escort:null, escortMode:false, escortWin:false, goblinKills:0, shardsGained:0, runeGold:0, diffMode:'normal',
     gauntlet:false, gauntletRound:1, rivalPers:null, comeback:false, drop:null, dropNextT:75,
+    ally:null, invader:null, invDone:false, invBuff:null, recap:null, dmgLog:[],
     storm:null, grove:null, hazT:95, hazFlip:false, groveAcc:0, weather:'clear', sandbox:false, sbDummies:null, chaosFx:null, tether:null, sanct:null,
     emoteUI:false, rivalEmoteAt:0, rivalEmoteTxt:null, weather:null, weatherNextT:50, waveEvery:24, cmGain:0, cmRank:1, map2:(App.map2&&!enemyId), legCd:0,
     deploys:[], buildOpen:false, placing:null, buildTab:'structures', buildPage:0, buildInfo:null, buildTapId:null, buildTapT:-9, buildInfoSpec:null, buildInfoSpecId:null, blueTroopDeaths:0, towerScore:0,
@@ -714,6 +733,7 @@ function dealDamage(src, target, raw, type, opt){
   if(src && src.isPlayer && G.eleBuff && G.eleBuff.type==='infernal' && G.t<G.eleBuff.until){ raw*=1.10; }
   if(src && src.isPlayer && src.elixUntil && G.t<src.elixUntil){ raw*=1.15; }
   if(src && src.ram && target && target.kind==='tower'){ raw*=2.5; }
+  if(G.invBuff && src && src.team===G.invBuff.team && G.t<G.invBuff.until){ raw*=1.15; }
   if(G.overtime){ raw*=1.5; }
   if(src && src.talExec && target.maxHp && target.hp/target.maxHp<0.35){ raw*=1.15; }
   if(src && src.talTitan && (target.kind==='jungle'||target.raidBoss)){ raw*=1.15; }
@@ -742,6 +762,9 @@ function dealDamage(src, target, raw, type, opt){
     floatText(target.x,target.y-target.radius-14,'\ud83d\udee1 BLOCKED','#ffe9b0',13);
     Audio.play('cast_phys'); return; }
   if(src && src.isPlayer){ G.stat.dealt+=dmg; }
+  if(target.isPlayer && src){
+    G.dmgLog.push({ n:(src.def?src.def.name:(src.name||src.kind||'?')), a:dmg, t:G.t });
+    while(G.dmgLog.length>40){ G.dmgLog.shift(); } }
   target.hp-=dmg; target.hitFlash=0.12;
   if(opt && opt.isAttack && src && src.kind==='champ' && hasIt(src,'myth_storm')){
     src.sbN=(src.sbN||0)+1;
@@ -921,6 +944,14 @@ function handleChampDeath(src, c){
     c.deaths++; endGame('lose'); return; }
   var victimStreak = c.streak||0;
   c.deaths++; c.streak=0; c.rampStacks=0; c.rampUntil=0;
+  if(c.isPlayer){
+    var rcAgg={}, rci, rcE, rcTop=null, rcTopA=0;
+    for(rci=0;rci<G.dmgLog.length;rci++){ rcE=G.dmgLog[rci];
+      if(G.t-rcE.t>7){ continue; }
+      rcAgg[rcE.n]=(rcAgg[rcE.n]||0)+rcE.a; }
+    var rcK; for(rcK in rcAgg){ if(rcAgg[rcK]>rcTopA){ rcTopA=rcAgg[rcK]; rcTop=rcK; } }
+    G.recap={ by:(src && src.def?src.def.name:(src&&src.name?src.name:'the Rift')), top:rcTop, topA:Math.round(rcTopA) };
+    G.dmgLog.length=0; }
   if(c.isPlayer){ c.respawnT = 4 + Math.min(20, (c.level-1)*1.2); }
   else { c.respawnT = 6 + Math.min(28, (c.level-1)*1.6); }
   if(G.overtime){ c.respawnT=1; }
@@ -928,6 +959,14 @@ function handleChampDeath(src, c){
   if(src && src.kind==='champ' && isEnemyTeam(src.team,c.team)){
     src.kills++; src.streak++;
     feedAdd(src.def.name+' \u2694 '+c.def.name, src.isPlayer?'#7fd2ff':'#ff9a9a');
+    if(src.isPlayer){
+      if(src.streak===3){ healUnit(src, Math.round(src.maxHp*0.15));
+        banner('\ud83d\udd25 RAMPAGE \u2014 healed 15%!','#ffb84c'); Voice.speak('Rampage'); }
+      else if(src.streak===5){ healUnit(src, Math.round(src.maxHp*0.20)); src.surgeUntil=G.t+3;
+        banner('\u26a1 UNSTOPPABLE \u2014 heal + attack surge!','#ffd166'); Voice.speak('Unstoppable'); }
+      else if(src.streak===7){ healUnit(src, Math.round(src.maxHp*0.25));
+        src.shield=Math.max(src.shield||0,150); src.msBoostUntil=G.t+3; src.msBoost=0.35;
+        banner('\ud83d\udc51 GODLIKE \u2014 heal, shield & speed!','#ff7a3c'); Voice.speak('Godlike'); screenFlash('#ffd166',0.25); } }
     if(victimStreak>=3){ var bnty=50+(victimStreak-2)*30;
       giveGold(src, bnty);
       banner('\ud83d\udcb0 BOUNTY CLAIMED \u2014 +'+bnty+'g!','#ffd166');
@@ -1102,6 +1141,7 @@ function endGame(result){
   G.state='over'; G.over = result;
   var p=G.player;
   var gained = 40 + p.kills*15 + p.cs + Math.floor(G.t/60)*5 + (result==='win'?120:30);
+  if(G.boostedGame){ gained=Math.round(gained*1.5); }
   var beforeLvl = Mastery.level();
   Mastery.award(gained);
   if(!G.duel){
@@ -1115,6 +1155,20 @@ function endGame(result){
     if((G.gauntletRound-1)>gbP){ Store.set('rift_gauntlet_best',''+(G.gauntletRound-1));
       banner('\u2694 NEW GAUNTLET BEST: ROUND '+(G.gauntletRound-1)+'!','#ffd166'); } }
   Voice.speak(result==='win'?'Victory!':'Defeat.');
+  if(plainRankedMatch()){
+    var lp0=lpGet(), lt0=lpTier(lp0)[1];
+    var dLp=(result==='win')?((G.hardcore)?40:20):-12;
+    var lp1=Math.max(0, lp0+dLp);
+    Store.set('rift_lp',''+lp1); G.lpDelta=dLp; G.lpNow=lp1;
+    var lt1=lpTier(lp1)[1];
+    if(lt1!==lt0){ banner((lp1>lp0?'\ud83c\udfc6 PROMOTED TO ':'\u2b07 Demoted to ')+lt1+'!', lpTier(lp1)[2]);
+      if(lp1>lp0){ Voice.speak('Promoted to '+lt1); } } }
+  if(result==='win' && !G.duel){
+    var fwK=''+dqDay();
+    if(Store.get('rift_fwotd','')!==fwK){
+      Store.set('rift_fwotd', fwK);
+      Store.set('rift_shards', ''+(shardCount()+10));
+      banner('\ud83c\udf1e FIRST WIN OF THE DAY \u2014 +10\ud83d\udc8e!','#ffd166'); } }
   dqOnGameEnd(result);
   try{
     Store.set('rift_tk', ''+((parseInt(Store.get('rift_tk','0'),10)||0)+G.player.kills));
@@ -1257,7 +1311,8 @@ var QUESTS={
   gor:    { d:'Endure 2500 damage',          m:function(){ return G.playerDmgTaken; },    goal:2500,b:'+250 HP',    f:function(p){ p.mastery=p.mastery||{}; p.mastery.hp=(p.mastery.hp||0)+250; } },
   ashka:  { d:'Cast 14 abilities',           m:function(){ return G.qCasts; },            goal:14, b:'-10% cooldowns', f:function(p){ p.cdr=(p.cdr||0)+0.10; } },
   vex:    { d:'Get 4 takedowns',             m:function(){ return G.player.kills; },      goal:4,  b:'+20 AD',       f:function(p){ p.mastery=p.mastery||{}; p.mastery.ad=(p.mastery.ad||0)+20; } },
-  lyra:   { d:'Heal 800 damage',             m:function(){ return G.stat.healed; },       goal:800,b:'+150 HP',      f:function(p){ p.mastery=p.mastery||{}; p.mastery.hp=(p.mastery.hp||0)+150; } } };
+  lyra:   { d:'Heal 800 damage',             m:function(){ return G.stat.healed; },       goal:800,b:'+150 HP',      f:function(p){ p.mastery=p.mastery||{}; p.mastery.hp=(p.mastery.hp||0)+150; } },
+  cinder: { d:'Deal 2000 damage',            m:function(){ return G.stat.dealt; },        goal:2000,b:'+18 AD',       f:function(p){ p.mastery=p.mastery||{}; p.mastery.ad=(p.mastery.ad||0)+18; } } };
 function checkQuest(){
   if(G.duel || G.questDone){ return; }
   var q=QUESTS[G.champId]; if(!q){ return; }
@@ -1392,6 +1447,15 @@ function handleJungleDeath(src, j){
       banner('\u23f1 NEW BEST TIME: '+rt9+'s!','#ffd166'); }
     endGame('win'); return; }
   if(j.epic){ G.hitstop=Math.max(G.hitstop||0, 0.13); }
+  if(j.invader){ j.alive=false; j.dead=true; G.invader=null;
+    Audio.play('firstblood'); spawnBurst(j.x,j.y,'#ff5c5c',60,380); spawnRing(j.x,j.y,'#ffffff',220); shake(0.8,18);
+    var ivTeam=(src && src.team)||'blue';
+    G.invBuff={ team:ivTeam, until:G.t+60 };
+    if(src && src.kind==='champ'){ giveGold(src, 400); }
+    banner((ivTeam==='blue'?'\u2694 YOUR TEAM':'\u2694 THE ENEMY')+' absorbs the invader\u2019s power \u2014 +15% damage for 60s!', ivTeam==='blue'?'#7fffb0':'#ff9a9a');
+    feedAdd('\u2620 '+(j.name||'Invader')+' slain', ivTeam==='blue'?'#7fffb0':'#ff9a9a');
+    Voice.speak('The invader falls');
+    return; }
   if(j.goblin){ j.alive=false; j.dead=true; Audio.play('victory');
     spawnBurst(j.x,j.y,'#ffd98a',44,300); spawnRing(j.x,j.y,'#ffd98a',120); shake(0.4,10);
     G.goblin=null; G.goblinNextT=G.t+rand(140,200);
@@ -1556,6 +1620,7 @@ function spawnProjectile(o){
     dmg:o.dmg||0, type:o.type||'physical', radius:o.radius||7, pierce:!!o.pierce,
     homing:!!o.homing, target:o.target||null, aoe:o.aoe||0, color:o.color||'#fff',
     isAttack:!!o.isAttack, mark:!!o.mark, friendly:!!o.friendly, slow:!!o.slow, slowAmt:o.slowAmt||0, slowDur:o.slowDur||0, stunDur:o.stunDur||0,
+    burnDps:o.burnDps||0, burnDur:o.burnDur||0,
     hitset:{}, src:o.src||null, dead:false, trail:o.trail!==false, land:!!o.land, extraMagic:0,
     splash:o.splash||0, splashFrac:o.splashFrac||0 };
   var dx,dy,d;
@@ -1589,6 +1654,7 @@ function applyProjHit(p, u){
   dealDamage(p.src, u, p.dmg, p.type, { isAttack:p.isAttack, mark:p.mark, showNum: u.kind==='champ', color:(p.critFx?'#ffd166':null), size:(p.critFx?18:null) });
   if(p.extraMagic>0){ dealDamage(p.src,u,p.extraMagic,'magic',{showNum:u.kind==='champ'}); }
   if(p.slow){ applySlow(u,p.slowAmt,p.slowDur); }
+  if(p.burnDps){ applyBurn(p.src,u,p.burnDps,p.burnDur); }
   if(p.stunDur>0){ applyStun(u,p.stunDur); }
   if(p.splash>0){ var sa=allUnits(), sj, sw; for(sj=0;sj<sa.length;sj++){ sw=sa[sj];
       var okS = p.friendly ? (sw.team===p.team && sw!==p.src) : isEnemyTeam(p.team,sw.team);
@@ -1607,7 +1673,7 @@ function explodeAoe(p){
     if(dist2(cx,cy,u.x,u.y) < (p.aoe+u.radius)*(p.aoe+u.radius)){
       if(p.hitset['aoe'+u.uid]){ continue; } p.hitset['aoe'+u.uid]=1;
       dealDamage(p.src,u,p.dmg,p.type,{mark:p.mark,showNum:u.kind==='champ'});
-      if(p.slow){ applySlow(u,p.slowAmt,p.slowDur); } if(p.stunDur>0){ applyStun(u,p.stunDur); } } }
+      if(p.slow){ applySlow(u,p.slowAmt,p.slowDur); } if(p.burnDps){ applyBurn(p.src,u,p.burnDps,p.burnDur); } if(p.stunDur>0){ applyStun(u,p.stunDur); } } }
 }
 function applySlow(u, amt, dur){ if(u.kind==='tower'||u.kind==='nexus'){ return; }
   if(u.frenzyUntil && G.t<u.frenzyUntil){ return; }
@@ -1669,7 +1735,52 @@ function doDash(c, dirx, diry, distpx, dur, onArrive){
   c.dashArrive=onArrive||null; c.facing=Math.atan2(diry,dirx); c.moveTarget=null;
 }
 
+function applyBurn(src, t, dps, dur){
+  if(!t || t.dead){ return; }
+  t.burnUntil=Math.max(t.burnUntil||0, G.t+dur);
+  t.burnDps=Math.max(t.burnDps||0, dps);
+  t.burnSrc=src; t.burnAcc=t.burnAcc||0; }
 var ABILITY_FN = {
+  cinder:{
+    q:function(c){ var t=aimTarget(c, 340), tx, ty;
+      if(t){ tx=t.x; ty=t.y; } else { var fv=facingVec(c); tx=c.x+fv.x*320; ty=c.y+fv.y*320; }
+      var rk=abilityRank(c,'q');
+      spawnProjectile({ team:c.team, src:c, x:c.x, y:c.y, tx:tx, ty:ty, speed:560, range:380,
+        dmg:65+22*rk+0.65*(c.ap||0), type:'magic', radius:7, color:'#ff9a4c',
+        burnDps:12+4*rk, burnDur:2.5 });
+      Audio.play('cast_magic'); return true; },
+    w:function(c){ var rk=abilityRank(c,'w'); var dmg=60+20*rk+0.5*(c.ap||0);
+      var fa=c.facing, arr=allUnits(), i, u;
+      spawnRing(c.x+Math.cos(fa)*110, c.y+Math.sin(fa)*110, '#ff7a3c', 120); Audio.play('cast_magic');
+      for(i=0;i<arr.length;i++){ u=arr[i];
+        if(!unitAlive(u) || !isEnemyTeam(c.team,u.team)){ continue; }
+        var dd=dist(c.x,c.y,u.x,u.y); if(dd>230+u.radius){ continue; }
+        var ua=Math.atan2(u.y-c.y,u.x-c.x), da=Math.abs(((ua-fa+Math.PI*3)%(Math.PI*2))-Math.PI);
+        if(da<0.62){ dealDamage(c,u,dmg,'magic',{showNum:u.kind==='champ'});
+          applyBurn(c,u,10+3*rk,2.2);
+          spawnBurst(u.x,u.y,'#ff9a4c',6,140); } }
+      return true; },
+    e:function(c){ var d0=aimDir(c, 260); var rk=abilityRank(c,'e');
+      var fx0=c.x, fy0=c.y;
+      doDash(c, Math.cos(d0), Math.sin(d0), 200, 0.14, null);
+      var arr2=allUnits(), i2, u2;
+      for(i2=0;i2<arr2.length;i2++){ u2=arr2[i2];
+        if(!unitAlive(u2) || !isEnemyTeam(c.team,u2.team)){ continue; }
+        var px=u2.x-fx0, py=u2.y-fy0, dxn=Math.cos(d0), dyn=Math.sin(d0);
+        var tproj=Math.max(0, Math.min(200, px*dxn+py*dyn));
+        var cxp=fx0+dxn*tproj, cyp=fy0+dyn*tproj;
+        if(dist(cxp,cyp,u2.x,u2.y)<62+u2.radius){
+          dealDamage(c,u2,40+14*rk+0.3*(c.ap||0),'magic',{showNum:u2.kind==='champ'});
+          applyBurn(c,u2,10+3*rk,2.0); } }
+      spawnTrail(fx0,fy0,'#ff7a3c'); spawnTrail(c.x,c.y,'#ff7a3c'); Audio.play('dash');
+      c.surgeUntil=Math.max(c.surgeUntil||0, G.t+1.6); return true; },
+    r:function(c){ var t=aimTarget(c, 380), mx0, my0;
+      if(t){ mx0=t.x; my0=t.y; } else { var fv2=facingVec(c); mx0=c.x+fv2.x*280; my0=c.y+fv2.y*280; }
+      var rk=abilityRank(c,'r');
+      G.cinderR={ x:mx0, y:my0, n:5, next:0, src:c, rk:rk };
+      banner(c.isPlayer?'\u2604 METEOR STORM!':'CINDER calls METEOR STORM!','#ff7a3c');
+      Audio.play('ult'); shake(0.4,10); return true; }
+  },
   lyra:{
     q:function(c){ var t=aimTarget(c, 340), rk=abilityRank(c,'q');
       if(t){ spawnProjectile({ team:c.team, src:c, x:c.x, y:c.y, tx:t.x, ty:t.y, speed:600, range:380,
@@ -1760,7 +1871,7 @@ var ABILITY_FN = {
       var rk=abilityRank(c,'q');
       spawnProjectile({ team:c.team, src:c, x:c.x, y:c.y, tx:tx, ty:ty, speed:580, range:380,
         dmg:78+28*rk+0.75*(c.ap||0), type:'magic', radius:8, color:'#9adcff',
-        slowHit:true, slowAmt:0.40, slowDur:1.8 });
+        slow:true, slowAmt:0.40, slowDur:1.8 });
       Audio.play('cast_magic'); return true; },
     w:function(c){ var rk=abilityRank(c,'w'); var dmg=70+26*rk+0.65*(c.ap||0);
       spawnRing(c.x,c.y,'#9adcff',190); spawnRing(c.x,c.y,'#ffffff',120); Audio.play('cast_magic');
@@ -2155,7 +2266,7 @@ var TROOPS = [
   { id:'t_dragoon',   name:'Dragoon',     cost:400, desc:'ULTIMATE piercing marksman' }
 ];
 var BOUGHT_CAP = 18;
-var CHAMP_GLYPHS={ kael:'sword', sera:'staff', dax:'crossbow', thane:'hammer', nyx:'dagger', lumen:'sword', morgrim:'axe', fable:'staff', gor:'hammer', ashka:'staff', vex:'dagger', lyra:'staff' };
+var CHAMP_GLYPHS={ kael:'sword', sera:'staff', dax:'crossbow', thane:'hammer', nyx:'dagger', lumen:'sword', morgrim:'axe', fable:'staff', gor:'hammer', ashka:'staff', vex:'dagger', lyra:'staff', cinder:'staff' };
 var TROOP_LOOKS={
   t_soldier:{g:'sword',c:'#cfd8ea'},   t_archer:{g:'bow',c:'#9fd2a0'},    t_knight:{g:'shield',c:'#bfc8dc'},
   t_medic:{g:'cross',c:'#7fffb0'},     t_raider:{g:'axe',c:'#ffb060'},    t_brute:{g:'hammer',c:'#d0a070'},
@@ -2534,6 +2645,14 @@ function updateChampCommon(c, dt){
     return; }
   if(c.hitFlash>0){ c.hitFlash-=dt; }
   if(c.atkAnimT>0){ c.atkAnimT-=dt; }
+  if(c.kind==='champ' && !G.duel && inBush(c)){
+    var bsee=false, bci, bcc;
+    for(bci=0;bci<G.champs.length;bci++){ bcc=G.champs[bci];
+      if(bcc===c || !unitAlive(bcc) || bcc.team===c.team || bcc.respawnT>0){ continue; }
+      if(dist(c.x,c.y,bcc.x,bcc.y)<135){ bsee=true; } }
+    if(!bsee){ c.stealthUntil=Math.max(c.stealthUntil||0, G.t+0.25); c.bushHide=true; }
+    else { c.bushHide=false; } }
+  else if(c.bushHide){ c.bushHide=false; }
   if(c.shield>0){ c.shield-=c.shield*Math.min(1,dt*0.6); if(c.shield<1){ c.shield=0; } }
   if(c.hp<c.maxHp){ c.hp=Math.min(c.maxHp, c.hp + c.hpReg*dt); }
   if(c.mana<c.maxMana){ c.mana=Math.min(c.maxMana, c.mana + c.mpReg*dt); }
@@ -2741,6 +2860,24 @@ function tryAIObjective(e, obj, d){
   var wd=abilityDef(e,'w'); if(canCast(e,'w') && wd.range===0){ castAbility(e,'w'); }
 }
 
+function updateAllyAI(a, dt){
+  if(a.respawnT>0 || G.bossPhase){ return; }
+  var ai=a.ai; ai.castGcd-=dt;
+  var hpF=a.hp/a.maxHp;
+  if(hpF<0.28){
+    var bf=BLUE_FOUNTAIN;
+    champMoveAndAttack(a,dt,(dist(a.x,a.y,bf.x,bf.y)>130?{x:bf.x,y:bf.y}:null),null); return; }
+  var tgt=nearestEnemy('blue', a.x, a.y, 330, function(u){ return u.kind==='champ'||u.kind==='minion'||u.kind==='jungle'; });
+  if(tgt){
+    if(ai.castGcd<=0){
+      if(canCast(a,'q')){ castAbility(a,'q'); ai.castGcd=0.9; }
+      else if(canCast(a,'w')){ castAbility(a,'w'); ai.castGcd=0.9; } }
+    var rr=a.range+a.radius+tgt.radius;
+    champMoveAndAttack(a,dt,(dist(a.x,a.y,tgt.x,tgt.y)>rr-4?{x:tgt.x,y:tgt.y}:null),tgt); return; }
+  var pd=dist(a.x,a.y,G.player.x,G.player.y);
+  if(pd>170){ champMoveAndAttack(a,dt,{x:G.player.x+50,y:G.player.y+30},null); }
+  else { champMoveAndAttack(a,dt,null,null); }
+}
 function updateEnemyAI(e, dt){
   if(G.bossPhase){ return; }
   if(G.sandbox){ return; }
@@ -3170,6 +3307,27 @@ function update(dt){
         if(sbu9.dead && sbu9.reviveAt && G.t>=sbu9.reviveAt){
           sbu9.dead=false; sbu9.hp=sbu9.maxHp; sbu9.reviveAt=0;
           spawnRing(sbu9.x,sbu9.y,'#7fe0b0',40); } } }
+    var buA=allUnits(), buI, buU;
+    for(buI=0;buI<buA.length;buI++){ buU=buA[buI];
+      if(!unitAlive(buU) || !buU.burnUntil || G.t>=buU.burnUntil){ continue; }
+      buU.burnAcc=(buU.burnAcc||0)+(buU.burnDps||0)*dt;
+      if(buU.burnAcc>=10){ buU.burnAcc-=10;
+        dealDamage(buU.burnSrc||null, buU, 10, 'magic', {showNum:false});
+        spawnBurst(buU.x,buU.y-6,'#ff9a4c',2,60); } }
+    if(G.cinderR){ var cr9=G.cinderR;
+      cr9.next-=dt;
+      if(cr9.next<=0 && cr9.n>0){ cr9.next=0.5; cr9.n--;
+        var mxx=cr9.x+rand(-140,140), myy=cr9.y+rand(-140,140);
+        spawnRing(mxx,myy,'#ff7a3c',90); spawnBurst(mxx,myy,'#ffb27a',24,240);
+        shake(0.25,7); Audio.play('cast_phys');
+        var mA=allUnits(), mI, mU;
+        for(mI=0;mI<mA.length;mI++){ mU=mA[mI];
+          if(!unitAlive(mU) || !isEnemyTeam(cr9.src.team,mU.team)){ continue; }
+          if(dist(mxx,myy,mU.x,mU.y)<95+mU.radius){
+            dealDamage(cr9.src,mU,70+20*cr9.rk+0.4*(cr9.src.ap||0),'magic',{showNum:mU.kind==='champ'});
+            applyBurn(cr9.src,mU,12+4*cr9.rk,2.0); } } }
+      if(cr9.n<=0 && cr9.next<=0){ G.cinderR=null; } }
+    if(G.ally){ updateAllyAI(G.ally, dt); }
     updateEscort(dt);
     if(!G.raid && !G.duel && !G.gauntlet && !G.bossPhase && !G.goblin && G.t>=G.goblinNextT){ spawnGoblin(); }
     if(!G.raid && !G.duel && !G.gauntlet && !G.bossPhase && !G.drop && G.t>=G.dropNextT){
@@ -3193,6 +3351,33 @@ function update(dt){
             else { banner('Red grabbed the supply drop','#ff9a9a'); }
             feedAdd('\ud83d\udce6 Supply drop claimed', dch2.isPlayer?'#9fd2ff':'#ff9a9a');
             G.drop=null; G.dropNextT=G.t+rand(80,120); Audio.play('coin'); break; } } } }
+    if(!G.raid && !G.duel && !G.gauntlet && !G.sandbox && !G.escortMode && !G.bossPhase && !G.invDone && G.t>480){
+      G.invDone=true;
+      var ivj=newJungle(1400, 1000, 'camp');
+      ivj.invader=true; ivj.jtype='invader'; ivj.noHeal=true;
+      ivj.name=choose(['GRAVEHORN','ASHMAW','NULLFANG']);
+      ivj.maxHp=3200+Math.round(G.t*2); ivj.hp=ivj.maxHp;
+      ivj.ad=60; ivj.range=110; ivj.radius=26; ivj.ms=95;
+      ivj.armor=30; ivj.mr=30; ivj.gold=400; ivj.xp=300; ivj.respawn=0;
+      ivj.atkT=0; ivj.homeX=1400; ivj.homeY=1000;
+      G.jungle.push(ivj); G.invader=ivj;
+      banner('\u2620 '+ivj.name+' INVADES MID \u2014 slay it for a team-wide buff!','#ff5c5c');
+      Voice.speak('A boss invades the rift'); Audio.play('objective'); shake(0.5,12); }
+    if(G.invader && G.invader.alive){ var iv9=G.invader;
+      iv9.atkT-=dt;
+      var ivT=null, ivBd=1e12, ivI, ivC;
+      for(ivI=0;ivI<G.champs.length;ivI++){ ivC=G.champs[ivI];
+        if(!unitAlive(ivC) || ivC.respawnT>0){ continue; }
+        var ivD=dist(iv9.x,iv9.y,ivC.x,ivC.y);
+        if(ivD<700 && ivD<ivBd){ ivBd=ivD; ivT=ivC; } }
+      if(ivT && dist(iv9.x,iv9.y,iv9.homeX,iv9.homeY)<520){
+        if(ivBd>iv9.range+iv9.radius+ivT.radius-6){ moveToward(iv9, ivT.x, ivT.y, dt); }
+        else if(iv9.atkT<=0){ iv9.atkT=1.6;
+          dealDamage(iv9, ivT, iv9.ad, 'physical', {showNum:true});
+          applySlow(ivT, 0.3, 0.8);
+          spawnBurst(ivT.x,ivT.y,'#ff5c5c',8,160); shake(0.2,6); } }
+      else if(dist(iv9.x,iv9.y,iv9.homeX,iv9.homeY)>40){ moveToward(iv9, iv9.homeX, iv9.homeY, dt); } }
+    if(G.invBuff && G.t>G.invBuff.until){ G.invBuff=null; }
     if(!G.raid && !G.duel && !G.gauntlet && !G.sandbox && !G.bossPhase && G.t>=G.hazT){
       G.hazT=G.t+rand(75,110); G.hazFlip=!G.hazFlip;
       if(G.hazFlip){
@@ -3573,6 +3758,12 @@ function render(){
     if(G.overtime && G.state==='play'){
       ctx.strokeStyle='rgba(255,207,92,'+(0.30+0.20*Math.sin(G.t*3.2))+')';
       ctx.lineWidth=6; ctx.strokeRect(3,3,VIEW.w-6,VIEW.h-6); }
+    if(G.sandbox && G.state==='play'){ var sci;
+      for(sci=0;sci<SB_CHEATS.length;sci++){ var scr=sbCheatRect(sci);
+        roundRect(scr.x,scr.y,scr.w,scr.h,8); ctx.fillStyle='rgba(24,40,32,0.92)'; ctx.fill();
+        ctx.strokeStyle='#7fe0b0'; ctx.lineWidth=1.5; ctx.stroke();
+        ctx.fillStyle='#c8f0dc'; ctx.font='bold 10px sans-serif'; ctx.textAlign='center';
+        ctx.fillText(SB_CHEATS[sci], scr.x+scr.w/2, scr.y+24); } ctx.textAlign='left'; }
     if(G.talentOffer && G.state==='play'){
       var tlo=G.talentOffer, tli;
       ctx.textAlign='center'; ctx.fillStyle='#ffd166'; ctx.font='bold 11px sans-serif';
@@ -3755,6 +3946,13 @@ function drawWorld(){
       circle(dr9.x,dr9.y,Math.max(4,30+8*dpu)); ctx.stroke();
       ctx.fillStyle='#cde6ff'; ctx.font='bold 9px sans-serif'; ctx.textAlign='center';
       ctx.fillText(Math.ceil(dr9.expireT-G.t)+'s', dr9.x, dr9.y-24); } }
+  var bshi; for(bshi=0;bshi<BUSHES.length;bshi++){ var bsh=BUSHES[bshi];
+    ctx.fillStyle='rgba(38,74,46,0.85)';
+    roundRect(bsh.x,bsh.y,bsh.w,bsh.h,26); ctx.fill();
+    ctx.fillStyle='rgba(58,104,62,0.7)';
+    var btf; for(btf=0;btf<5;btf++){
+      var bfx=bsh.x+14+((btf*53)%(bsh.w-28)), bfy=bsh.y+10+((btf*37)%(bsh.h-20));
+      circle(bfx+Math.sin(G.t*1.5+btf)*2, bfy, 9); ctx.fill(); } }
   drawEscort();
   drawPet();
   if(G.player.respawnT<=0){ drawChamp(G.player);
@@ -3888,6 +4086,20 @@ function drawTower(t){
   drawTeamBar(t, 58, 18, t.hp/t.maxHp, col);
 }
 function drawJungle(j){
+  if(j.invader && j.alive){
+    ctx.fillStyle='rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.ellipse(j.x,j.y+j.radius*0.75,j.radius*1.1,j.radius*0.45,0,0,TAU); ctx.fill();
+    var ivp=0.5+0.5*Math.sin(G.t*4);
+    ctx.strokeStyle='rgba(255,92,92,'+(0.35+0.3*ivp)+')'; ctx.lineWidth=4;
+    circle(j.x,j.y,Math.max(4,j.radius+9+4*ivp)); ctx.stroke();
+    ctx.fillStyle='rgba(46,20,26,0.97)'; ctx.strokeStyle='#ff5c5c'; ctx.lineWidth=3;
+    circle(j.x,j.y,j.radius); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#ff9a9a'; ctx.font='bold 20px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('\u2620', j.x, j.y+7);
+    ctx.fillStyle='#ffd0d0'; ctx.font='bold 10px sans-serif';
+    ctx.fillText(j.name||'INVADER', j.x, j.y-j.radius-18);
+    ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(j.x-34,j.y-j.radius-14,68,6);
+    ctx.fillStyle='#ff5c5c'; ctx.fillRect(j.x-34,j.y-j.radius-14,68*clamp(j.hp/j.maxHp,0,1),6);
+    return; }
   if(j.goblin && j.alive){
     var gsh=Math.sin(G.t*14)*2;
     ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(j.x,j.y+j.radius*0.7,j.radius,j.radius*0.4,0,0,TAU); ctx.fill();
@@ -4012,6 +4224,9 @@ function drawChamp(c){
     var lunge=(c.atkAnimT>0)? Math.sin((1-(c.atkAnimT/0.22))*Math.PI)*5 : 0;
     drawGlyph(c.x+ex*lunge, c.y+stepBob+ey*lunge, cg, '#ffffff', c.facing+sw, c.radius*0.95); }
   ctx.fillStyle='#fff'; ctx.font='bold 14px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(c.def.name.charAt(0), c.x, c.y+stepBob); ctx.textBaseline='alphabetic';
+  if(c.burnUntil && G.t<c.burnUntil){
+    ctx.fillStyle='rgba(255,122,60,0.8)'; ctx.font='10px sans-serif';
+    ctx.fillText('\ud83d\udd25', c.x+c.radius*0.7, c.y-c.radius*0.6+Math.sin(G.t*9)*2); }
   if((c.streak||0)>=3){ var bam=50+((c.streak)-2)*30;
     ctx.fillStyle='#ffd166'; ctx.font='bold 10px sans-serif';
     ctx.fillText('\ud83d\udcb0'+bam, c.x, c.y-c.radius-24+Math.sin(G.t*4)*2); }
@@ -4080,6 +4295,8 @@ function abilityBtnRect(i){ var sz=Math.min(64, VIEW.w*0.13), gap=8, total=4*sz+
   var x0=VIEW.w - total - 14, y=VIEW.h - sz - 16; return { x:x0+i*(sz+gap), y:y, w:sz, h:sz, sz:sz }; }
 var EMOTES=['\ud83d\udc4d','\ud83d\ude02','\ud83d\ude21','GG'];
 var RIVAL_EMOTES=['\ud83d\ude08','\ud83d\ude02','\ud83d\ude34','\ud83d\udc80'];
+function sbCheatRect(i){ return { x:VIEW.w-96, y:120+i*46, w:84, h:38 }; }
+var SB_CHEATS=['+5 LVL','+5000g','RESET CD','SMITE FOE'];
 function emoteBtnRect(){ var r=recallBtnRect(); return { x:r.x+r.w+10, y:r.y, w:r.w, h:r.h }; }
 function emoteOptRect(i){ var b=emoteBtnRect(); return { x:b.x+(i-1.5)*50, y:b.y-56, w:46, h:46 }; }
 function fireEmote(i){
@@ -4409,7 +4626,12 @@ function drawHUD(){
 
   if(p.respawnT>0){ ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.fillRect(0,0,VIEW.w,VIEW.h);
     ctx.fillStyle='#ff6b6b'; ctx.font='bold 28px sans-serif'; ctx.textAlign='center'; ctx.fillText('YOU DIED', VIEW.w/2, VIEW.h/2-10);
-    ctx.fillStyle='#fff'; ctx.font='16px sans-serif'; ctx.fillText('Respawning in '+Math.ceil(p.respawnT)+'s', VIEW.w/2, VIEW.h/2+18); }
+    ctx.fillStyle='#fff'; ctx.font='16px sans-serif'; ctx.fillText('Respawning in '+Math.ceil(p.respawnT)+'s', VIEW.w/2, VIEW.h/2+18);
+    if(G.recap){
+      ctx.fillStyle='rgba(255,154,154,0.95)'; ctx.font='12px sans-serif';
+      ctx.fillText('Slain by '+G.recap.by, VIEW.w/2, VIEW.h/2+42);
+      if(G.recap.top){ ctx.fillStyle='rgba(200,214,230,0.8)'; ctx.font='11px sans-serif';
+        ctx.fillText('Biggest threat: '+G.recap.top+' ('+G.recap.topA+' dmg in 7s)', VIEW.w/2, VIEW.h/2+60); } } }
 
   if(G.msgT>0){ var a=clamp(G.msgT/2.2,0,1); ctx.globalAlpha=Math.min(1,a*1.5); ctx.fillStyle=G.msgColor; ctx.font='bold 20px sans-serif'; ctx.textAlign='center'; ctx.fillText(G.msg, VIEW.w/2, 78); ctx.globalAlpha=1; }
   var prs=rampStacks(p);
@@ -4525,6 +4747,7 @@ function drawMinimap(){
     else if(jj.marauder){ ctx.fillStyle='#ff9a5c'; circle(mx(jj.x),my(jj.y),2.2); ctx.fill(); } }
   if(G.drop){ ctx.fillStyle='#9fd2ff'; circle(mx(G.drop.x),my(G.drop.y),3+1.2*Math.sin(G.t*6)); ctx.fill(); }
   if(G.storm){ ctx.fillStyle='#b06aff'; circle(mx(G.storm.x),my(G.storm.y),3.5); ctx.fill(); }
+  if(G.invader && G.invader.alive){ ctx.fillStyle='#ff5c5c'; circle(mx(G.invader.x),my(G.invader.y),4+1.5*Math.sin(G.t*5)); ctx.fill(); }
   if(G.grove){ ctx.fillStyle='#ffd98a'; circle(mx(G.grove.x),my(G.grove.y),3.5); ctx.fill(); }
   if(G.warden.alive){ var wbp=(G.bossPhase==='warden')?(4+2*Math.sin(G.t*6)):3; ctx.fillStyle='#ffd166'; circle(mx(G.warden.x),my(G.warden.y),wbp); ctx.fill(); }
   if(G.dragon && G.dragon.alive){ var dbp=(G.bossPhase==='dragon')?(4+2*Math.sin(G.t*6)):3; ctx.fillStyle='#ff7a4c'; circle(mx(G.dragon.x),my(G.dragon.y),dbp); ctx.fill(); }
@@ -4556,6 +4779,7 @@ var BUILDS={
   ashka:['cr','bt','so','sf','tb','wh'],
   vex:['lb','qb','bt','cb','pe','gs'],
   lyra:['cr','bt','so','tb','sf','wh'],
+  cinder:['cr','bt','sf','so','tb','wh'],
   kael:['lb','bt','bf','cb','pe','gs'], sera:['cr','bt','so','sf','tb','wh'],
   dax:['qb','bt','lb','cb','pe','bf'], thane:['pl','bt','ti','as','gs','wh'],
   nyx:['lb','bt','cb','pe','bf','gs'], lumen:['cr','bt','tb','so','sf','wh'],
@@ -4776,6 +5000,9 @@ function drawGameOver(){
   ctx.textAlign='center';
   if(G.shardsGained){ ctx.fillStyle='#c9a0ff'; ctx.font='bold 11px sans-serif';
     ctx.fillText('\ud83d\udc8e +'+G.shardsGained+' Rune Shards  (total '+shardCount()+')', cx, ty+134); }
+  if(G.lpDelta){ var lpc=lpTier(G.lpNow||0);
+    ctx.fillStyle=lpc[2]; ctx.font='bold 11px sans-serif';
+    ctx.fillText('\ud83c\udfc6 '+(G.lpDelta>0?'+':'')+G.lpDelta+' LP \u2192 '+lpc[1]+' ('+(G.lpNow||0)+')', cx, ty+150); }
   if(typeof G.masteryGained==='number'){ ctx.fillStyle='#ffcf5c'; ctx.font='bold 12px sans-serif';
     ctx.fillText('+'+G.masteryGained+' Mastery  \u2192  Lv '+G.masteryProg.lvl+(G.masteryLevelUp?'   LEVEL UP!':''), cx, ty+39); }
   if(G.over==='win' && !G.raid){ var eb9=overEndlessRect();
@@ -4939,6 +5166,9 @@ function drawTitle(){
   ctx.strokeStyle='rgba(150,180,210,0.4)'; ctx.lineWidth=1.5; ctx.stroke();
   ctx.fillStyle='#cdd8e6'; ctx.font='14px sans-serif'; ctx.fillText('Sound: '+(Audio.isEnabled()?'ON':'OFF'), s.x+s.w/2, s.y+s.h/2+5);
   // mastery + stats
+  var lpv=lpGet(), lpt=lpTier(lpv);
+  ctx.fillStyle=lpt[2]; ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('\ud83c\udfc6 '+lpt[1]+'  \u00b7  '+lpv+' LP', VIEW.w/2, VIEW.h*0.62+58);
   var mp = Mastery.progress(Mastery.getXp());
   ctx.fillStyle='#ffcf5c'; ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
   ctx.fillText('MASTERY  Lv '+mp.lvl+(mp.lvl>=Mastery.MAXLVL?'  (MAX)':''), cx, VIEW.h-52);
@@ -4985,6 +5215,17 @@ var DQ_POOL=[
   { id:'gob1',  d:'Catch a Treasure Goblin',goal:1, m:function(res){ return G.goblinKills||0; } },
   { id:'cast12',d:'Cast 12 abilities',      goal:12,m:function(res){ return G.qCasts||0; } },
   { id:'camp6', d:'Clear 6 jungle camps',   goal:6, m:function(res){ return G.campKills||0; } } ];
+function boostedChamp(){ return CHAMP_ORDER[Math.floor(dqDay()/7)%CHAMP_ORDER.length]; }
+var LP_TIERS=[[0,'BRONZE','#c9895b'],[100,'SILVER','#c0ccd8'],[250,'GOLD','#ffd166'],[450,'PLATINUM','#7fe0d0'],[700,'DIAMOND','#7fb8ff'],[1000,'MASTER','#c9a0ff'],[1400,'CHALLENGER','#ff7a3c']];
+function lpGet(){ return parseInt(Store.get('rift_lp','0'),10)||0; }
+function lpTier(lp){ var i, t=LP_TIERS[0];
+  for(i=0;i<LP_TIERS.length;i++){ if(lp>=LP_TIERS[i][0]){ t=LP_TIERS[i]; } }
+  return t; }
+function plainRankedMatch(){
+  if(G.duel||G.raid||G.rush||G.gauntlet||G.sandbox||G.escortMode||G.challenge){ return false; }
+  if(App.dailyMode||App.weeklyMode){ return false; }
+  var mk, any=false; for(mk in G.mods){ if(G.mods[mk]){ any=true; } }
+  return !any; }
 function dqDay(){ return Math.floor(Date.now()/86400000); }
 function dqActive(){ var d=dqDay(), out=[], used={}, k, ix;
   for(k=0;k<3;k++){ ix=(d*7+k*13)%DQ_POOL.length;
@@ -5138,7 +5379,13 @@ function drawSelect(){
     roundRect(lo9.x,lo9.y,lo9.w,lo9.h,9); ctx.fillStyle='rgba(20,26,44,0.95)'; ctx.fill();
     ctx.strokeStyle='#9fbaff'; ctx.lineWidth=1.5; ctx.stroke();
     ctx.fillStyle='#bcd0ff'; ctx.font='bold 10px sans-serif';
-    ctx.fillText('\u2699 LOADOUT', lo9.x+lo9.w/2, lo9.y+lo9.h/2+4); }
+    ctx.fillText('\u2699 LOADOUT', lo9.x+lo9.w/2, lo9.y+lo9.h/2+4);
+    var du9=team2v2Rect();
+    roundRect(du9.x,du9.y,du9.w,du9.h,9);
+    ctx.fillStyle=App.duoMode?'rgba(28,48,38,0.96)':'rgba(24,30,42,0.92)'; ctx.fill();
+    ctx.strokeStyle=App.duoMode?'#7fffb0':'rgba(150,170,195,0.4)'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.fillStyle=App.duoMode?'#a8ffd0':'#cdd8e6'; ctx.font='bold 10px sans-serif';
+    ctx.fillText(App.duoMode?'\ud83e\udd1d DUO \u2713':'\ud83e\udd1d DUO', du9.x+du9.w/2, du9.y+du9.h/2+4); }
   if(App.loadoutOpen && !App.duelMode){ drawLoadout(); }
   if(App.duelMode){ var tv9=team2v2Rect();
     roundRect(tv9.x,tv9.y,tv9.w,tv9.h,9); ctx.fillStyle=App.duel2v2?'rgba(52,40,12,0.98)':'rgba(24,34,46,0.92)'; ctx.fill();
@@ -5191,6 +5438,8 @@ function drawSelect(){
       ctx.strokeStyle=bgc; ctx.lineWidth=1.5; ctx.stroke();
       ctx.fillStyle=bgc; ctx.font='bold 11px sans-serif'; ctx.fillText(bgd, r.x+r.w-15, r.y+19); }
     ctx.fillStyle=def.accent; ctx.font='10px sans-serif'; ctx.fillText(def.role+(def.melee?' \u00b7 Melee':' \u00b7 Ranged'), ox, ty+14);
+    if(def.id===boostedChamp()){ ctx.fillStyle='#ffd166'; ctx.font='bold 8px sans-serif';
+      ctx.fillText('\u2b50 BOOSTED THIS WEEK', ox, ty-56); }
     var ttl5=cmTitle(def.id);
     if(ttl5){ ctx.fillStyle='#ffd166'; ctx.font='italic 9px sans-serif';
       ctx.fillText('\u2726 '+def.name+' '+ttl5, ox, ty+27); }
@@ -5243,6 +5492,14 @@ function startGame(champId, enemyId){ applyDifficulty(currentDiff()); initGame(c
   if(!enemyId){ var wR=Math.random();
     G.weather=(wR<0.5)?'clear':(wR<0.75?'rain':'snow');
     if(G.weather!=='clear'){ banner(G.weather==='rain'?'\ud83c\udf27 Rain over the Rift\u2026':'\u2744 Snow falls on the Rift\u2026','#9fbaff'); } }
+  if(!enemyId && App.duoMode && !App.gauntletMode && !App.sandboxMode){
+    var alyP=CHAMP_ORDER.slice(), alyI=alyP.indexOf(champId);
+    if(alyI>=0){ alyP.splice(alyI,1); }
+    G.ally=newChampion('blue', choose(alyP), false);
+    G.ally.isAlly=true; G.ally.x=G.player.x+70; G.ally.y=G.player.y+40;
+    G.champs.push(G.ally);
+    G.enemy.perkMul.ad*=1.22; G.enemy.perkMul.hp*=1.25; recomputeStats(G.enemy,true);
+    banner('\ud83e\udd1d '+G.ally.def.name+' joins you! The rival grows stronger to match\u2026','#7fffb0'); }
   if(!enemyId && App.sandboxMode){
     G.sandbox=true;
     G.player.gold=99999; G.player.level=16; recomputeStats(G.player,true);
@@ -5263,6 +5520,10 @@ function startGame(champId, enemyId){ applyDifficulty(currentDiff()); initGame(c
   if(!enemyId && !App.gauntletMode){
     G.rivalPers=choose(['AGGRESSIVE','GREEDY','GUARDIAN']);
     var rpT=(G.rivalPers==='AGGRESSIVE')?'hunts you relentlessly':(G.rivalPers==='GREEDY')?'farms hard, backs early':'defends towers stubbornly';
+    if(champId===boostedChamp()){
+      G.player.perkMul.ad*=1.10; G.player.perkMul.hp*=1.10; recomputeStats(G.player,true);
+      G.boostedGame=true;
+      banner('\u2b50 WEEKLY BOOST \u2014 '+G.player.def.name+' +10% stats & +50% mastery XP!','#ffd166'); }
     var pttl=cmTitle(champId);
     if(pttl){ banner('\u2726 Entering as '+G.player.def.name+' '+pttl,'#ffd166'); }
     banner('\ud83c\udfad RIVAL TRAIT: '+G.rivalPers+' \u2014 '+rpT, '#ffb86a');
@@ -5481,7 +5742,9 @@ function onStart(sx,sy){
         else if(App.map2){ App.map2=false; App.twinMap=true; banner2('MAP: TWIN RIVERS \u2014 waves split across TWO lanes'); }
         else { App.twinMap=false; banner2('MAP: THE RIFT'); }
         Audio.play('buy'); return; }
-      if(pointInRect(sx,sy,loadoutBtnRect())){ App.loadoutOpen=true; Audio.play('event'); return; } }
+      if(pointInRect(sx,sy,loadoutBtnRect())){ App.loadoutOpen=true; Audio.play('event'); return; }
+      if(pointInRect(sx,sy,team2v2Rect())){ App.duoMode=!App.duoMode; Audio.play('buy');
+        banner2(App.duoMode?'\ud83e\udd1d DUO \u2014 an AI ally will fight beside you (rival gets tougher)':'Duo off'); return; } }
     if(!App.duelMode && pointInRect(sx,sy,selectStartRect())){ startGame(CHAMP_ORDER[App.sel]); return; }
     var i; for(i=0;i<CHAMP_ORDER.length;i++){ if(pointInRect(sx,sy,selectCardRect(i))){
       if(App.duelMode){
@@ -5585,6 +5848,14 @@ function onStart(sx,sy){
     return; }
   // HUD buttons
   if(pointInRect(sx,sy,pauseBtnRect())){ G.paused=true; return; }
+  if(G.sandbox){ var scj;
+    for(scj=0;scj<SB_CHEATS.length;scj++){ if(pointInRect(sx,sy,sbCheatRect(scj))){
+      var pP=G.player;
+      if(scj===0){ pP.level=Math.min(16,pP.level+5); recomputeStats(pP,true); banner('LEVEL '+pP.level,'#7fe0b0'); }
+      else if(scj===1){ pP.gold+=5000; banner('+5000g','#ffd166'); }
+      else if(scj===2){ pP.cdR.q=0; pP.cdR.w=0; pP.cdR.e=0; pP.cdR.r=0; pP.mana=pP.maxMana; banner('Cooldowns reset','#7fe0b0'); }
+      else { if(G.enemy && !G.enemy.dead && G.enemy.respawnT<=0){ dealDamage(pP, G.enemy, 999999, 'true', {}); banner('Rival smitten','#ff9a9a'); } }
+      Audio.play('buy'); return; } } }
   if(G.emoteUI){ var emi;
     for(emi=0;emi<4;emi++){ if(pointInRect(sx,sy,emoteOptRect(emi))){ fireEmote(emi); return; } }
     G.emoteUI=false; }
