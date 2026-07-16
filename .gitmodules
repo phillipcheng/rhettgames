@@ -10,3 +10,7 @@
 	path = games/fork-of-demon-slayer
 	url = https://github.com/phillipcheng/fork-of-demon-slayer.git
 	branch = main
+[submodule "games/empire-rise-of-civilization"]
+	path = games/empire-rise-of-civilization
+	url = https://github.com/phillipcheng/empire-rise-of-civilization.git
+	branch = main
